@@ -1,11 +1,51 @@
 /*
-  VA Benefit Ploting v0.23
-  - Versi final dimulai tanpa data ploting.
-  - Master Data tetap tersedia untuk membangun pilihan operasional.
-  - Status, note, spot sliding, penghapusan jadwal, timeline, dan export Excel tetap aktif.
+  VA Benefit Ploting v0.26
+  - Firebase Realtime Database menjadi sumber data bersama secara realtime.
+  - Firebase Authentication Email/Password membatasi akses tiga akun internal.
+  - Pengaturan tanggal operasional tetap lokal pada browser masing-masing pengguna.
 */
 
-const STORAGE_KEY = "va-benefit-ploting-v23";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+
+const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v26-settings";
+const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
+
+// Akun internal. Password sengaja tidak disimpan di kode website.
+// Buat tiga akun ini di Firebase Authentication > Users sebelum aplikasi dipakai.
+const TEAM_ACCOUNTS = Object.freeze({
+  rakha: Object.freeze({ id: "rakha", name: "Rakha", email: "rakha@benefit-virtual-ads.app" }),
+  adhi: Object.freeze({ id: "adhi", name: "Adhi", email: "adhi@benefit-virtual-ads.app" }),
+  rian: Object.freeze({ id: "rian", name: "Rian", email: "rian@benefit-virtual-ads.app" })
+});
+const TEAM_ACCOUNT_BY_EMAIL = Object.freeze(
+  Object.values(TEAM_ACCOUNTS).reduce((accounts, account) => {
+    accounts[account.email] = account;
+    return accounts;
+  }, {})
+);
+
+// Konfigurasi Firebase untuk aplikasi Benefit Virtual Ads.
+const firebaseConfig = {
+  apiKey: "AIzaSyApt0vF8DdKcCrCllWzbJAbvmbJeW6TZVM",
+  authDomain: "benefit-virtual-ads.firebaseapp.com",
+  projectId: "benefit-virtual-ads",
+  storageBucket: "benefit-virtual-ads.firebasestorage.app",
+  messagingSenderId: "707145076476",
+  appId: "1:707145076476:web:582aaac96143a22803d179",
+  measurementId: "G-2T269QR6NS",
+  // Jika instance Realtime Database Anda memakai URL regional, ganti nilai ini
+  // dengan URL persis dari Firebase Console > Realtime Database > Data.
+  databaseURL: "https://benefit-virtual-ads-default-rtdb.firebaseio.com"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const firebaseAuth = getAuth(firebaseApp);
+const realtimeDb = getDatabase(firebaseApp, firebaseConfig.databaseURL);
+const realtimeRootRef = ref(realtimeDb, REALTIME_DATABASE_ROOT);
+const realtimeMastersRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/masters`);
+const realtimeSchedulesRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/schedules`);
 const getLocalIsoDate = () => {
   const now = new Date();
   const local = new Date(now.getTime() - (now.getTimezoneOffset() * 60_000));
@@ -52,6 +92,18 @@ let filters = {
   pic: { pic: "", month: "" }
 };
 let toastTimer;
+let unsubscribeMasters = null;
+let unsubscribeSchedules = null;
+let currentFirebaseUser = null;
+let firebaseBootstrapComplete = false;
+let selectedTeamAccountId = "rakha";
+let firebaseMasterLoaded = false;
+let firebaseSchedulesLoaded = false;
+let firebaseSyncQueued = false;
+let firebaseSyncInProgress = false;
+let firebasePendingSync = false;
+let remoteMasters = null;
+let remotePlotings = new Map();
 
 function normalizeMasters(rawMasters, plotings) {
   const masters = clone(defaultMasters);
@@ -80,17 +132,14 @@ function normalizePlotings(plotings) {
 
 function loadState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && Array.isArray(saved.plotings)) {
-      const plotings = normalizePlotings(saved.plotings);
-      return {
-        plotings,
-        masters: normalizeMasters(saved.masters, plotings),
-        operationDate: saved.operationDate || DEFAULT_OPERATION_DATE
-      };
-    }
+    const saved = JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY));
+    return {
+      plotings: [],
+      masters: normalizeMasters(defaultMasters, []),
+      operationDate: saved?.operationDate || DEFAULT_OPERATION_DATE
+    };
   } catch (error) {
-    console.warn("Tidak dapat membaca data lokal.", error);
+    console.warn("Tidak dapat membaca pengaturan lokal.", error);
   }
   return {
     plotings: [],
@@ -100,7 +149,12 @@ function loadState() {
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify({ operationDate: state.operationDate }));
+  } catch (error) {
+    console.warn("Pengaturan lokal tidak dapat disimpan.", error);
+  }
+  queueRealtimeDatabaseSync();
 }
 
 function formatDate(dateValue, options = { day: "2-digit", month: "short", year: "numeric" }) {
@@ -178,6 +232,277 @@ function showToast(message) {
   toast.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+}
+
+
+function setFirebaseStatus(stateName, text) {
+  const badge = $("#firebaseStatus");
+  const label = $("#firebaseStatusText");
+  if (!badge || !label) return;
+  badge.dataset.state = stateName;
+  label.textContent = text;
+}
+
+function getSelectedTeamAccount() {
+  return TEAM_ACCOUNTS[selectedTeamAccountId] || TEAM_ACCOUNTS.rakha;
+}
+
+function updateAuthForm() {
+  const signInButton = $("#passwordSignInButton");
+  const selectedName = $("#authSelectedName");
+  const passwordInput = $("#authPasswordInput");
+  const account = getSelectedTeamAccount();
+
+  if (selectedName) selectedName.textContent = account.name;
+  $$(".auth-account-button").forEach((button) => {
+    const selected = button.dataset.teamAccount === account.id;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+
+  if (!signInButton) return;
+  const hasPassword = Boolean(passwordInput?.value?.trim());
+  signInButton.disabled = !firebaseBootstrapComplete || !hasPassword;
+  signInButton.textContent = firebaseBootstrapComplete ? "Masuk" : "Menyiapkan Firebase...";
+}
+
+function selectTeamAccount(accountId, moveFocus = false) {
+  if (!TEAM_ACCOUNTS[accountId]) return;
+  selectedTeamAccountId = accountId;
+  updateAuthForm();
+  if (moveFocus) $("#authPasswordInput")?.focus();
+}
+
+function setAuthGate(open, message = "") {
+  const gate = $("#authGate");
+  const gateMessage = $("#authGateMessage");
+  if (gate) gate.hidden = !open;
+  if (gateMessage && message) gateMessage.textContent = message;
+  updateAuthForm();
+}
+
+function updateUserChip(user) {
+  const button = $("#signOutButton");
+  const initial = $("#authUserInitial");
+  const name = $("#authUserName");
+  if (!button || !initial || !name) return;
+  if (!user) {
+    button.hidden = true;
+    return;
+  }
+  const account = TEAM_ACCOUNT_BY_EMAIL[String(user.email || "").toLowerCase()];
+  const label = account?.name || user.displayName || user.email || "Akun Tim";
+  initial.textContent = label.trim().charAt(0).toUpperCase() || "V";
+  name.textContent = label;
+  button.hidden = false;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function cleanFirebaseValue(value) {
+  if (Array.isArray(value)) return value.map((item) => cleanFirebaseValue(item));
+  if (value && typeof value === "object") {
+    return Object.entries(value).reduce((acc, [key, item]) => {
+      if (item !== undefined) acc[key] = cleanFirebaseValue(item);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function firebaseRecord(plot) {
+  return cleanFirebaseValue({ ...plot });
+}
+
+function sameFirebaseValue(first, second) {
+  return stableStringify(cleanFirebaseValue(first)) === stableStringify(cleanFirebaseValue(second));
+}
+
+function realtimeDatabaseReady() {
+  return Boolean(currentFirebaseUser && firebaseMasterLoaded && firebaseSchedulesLoaded);
+}
+
+function queueRealtimeDatabaseSync() {
+  firebasePendingSync = true;
+  if (!realtimeDatabaseReady()) return;
+  if (firebaseSyncQueued || firebaseSyncInProgress) return;
+  firebaseSyncQueued = true;
+  window.setTimeout(() => {
+    firebaseSyncQueued = false;
+    syncStateToRealtimeDatabase();
+  }, 120);
+}
+
+async function syncStateToRealtimeDatabase() {
+  if (!realtimeDatabaseReady()) return;
+  if (firebaseSyncInProgress) {
+    firebasePendingSync = true;
+    return;
+  }
+
+  firebaseSyncInProgress = true;
+  firebasePendingSync = false;
+  setFirebaseStatus("saving", "Menyimpan");
+
+  try {
+    state.masters = normalizeMasters(state.masters, state.plotings);
+    const updates = {};
+    const currentById = new Map(state.plotings.map((plot) => [plot.id, firebaseRecord(plot)]));
+
+    remotePlotings.forEach((_, id) => {
+      if (!currentById.has(id)) updates[`schedules/${id}`] = null;
+    });
+
+    currentById.forEach((record, id) => {
+      const remote = remotePlotings.get(id);
+      if (!remote || !sameFirebaseValue(record, remote)) updates[`schedules/${id}`] = record;
+    });
+
+    if (!remoteMasters || !sameFirebaseValue(state.masters, remoteMasters)) {
+      updates.masters = cleanFirebaseValue(state.masters);
+    }
+
+    if (!Object.keys(updates).length) {
+      setFirebaseStatus("synced", "Tersimpan");
+      return;
+    }
+
+    updates.schemaVersion = 26;
+    updates.updatedAt = nowIso();
+    await update(realtimeRootRef, updates);
+
+    remotePlotings = new Map([...currentById.entries()].map(([id, record]) => [id, clone(record)]));
+    remoteMasters = clone(state.masters);
+    setFirebaseStatus("synced", "Tersimpan");
+  } catch (error) {
+    console.error("Gagal menyimpan ke Realtime Database.", error);
+    setFirebaseStatus("error", "Gagal sinkronisasi");
+    showToast("Data belum tersimpan. Periksa Realtime Database Rules, databaseURL, dan koneksi internet.");
+    firebasePendingSync = true;
+  } finally {
+    firebaseSyncInProgress = false;
+    if (firebasePendingSync) queueRealtimeDatabaseSync();
+  }
+}
+
+function stopRealtimeDatabaseListeners() {
+  if (unsubscribeMasters) unsubscribeMasters();
+  if (unsubscribeSchedules) unsubscribeSchedules();
+  unsubscribeMasters = null;
+  unsubscribeSchedules = null;
+  firebaseMasterLoaded = false;
+  firebaseSchedulesLoaded = false;
+  remoteMasters = null;
+  remotePlotings = new Map();
+}
+
+function subscribeToRealtimeDatabase() {
+  stopRealtimeDatabaseListeners();
+  setFirebaseStatus("connecting", "Memuat data");
+
+  unsubscribeMasters = onValue(realtimeMastersRef, (snapshot) => {
+    const cloudMasters = snapshot.exists() ? snapshot.val() : defaultMasters;
+    state.masters = normalizeMasters(cloudMasters, state.plotings);
+    remoteMasters = snapshot.exists() ? clone(state.masters) : null;
+    firebaseMasterLoaded = true;
+    if (realtimeDatabaseReady()) {
+      renderAll();
+      queueRealtimeDatabaseSync();
+    }
+  }, (error) => handleRealtimeDatabaseError(error));
+
+  unsubscribeSchedules = onValue(realtimeSchedulesRef, (snapshot) => {
+    const rawSchedules = snapshot.exists() ? snapshot.val() : {};
+    const plotings = normalizePlotings(Object.entries(rawSchedules || {}).map(([id, record]) => ({ id, ...(record || {}) })));
+    state.plotings = sortByDate(plotings);
+    state.masters = normalizeMasters(state.masters, state.plotings);
+    remotePlotings = new Map(state.plotings.map((plot) => [plot.id, firebaseRecord(plot)]));
+    firebaseSchedulesLoaded = true;
+    if (realtimeDatabaseReady()) {
+      setFirebaseStatus("synced", "Tersimpan");
+      renderAll();
+      queueRealtimeDatabaseSync();
+    }
+  }, (error) => handleRealtimeDatabaseError(error));
+}
+
+function handleRealtimeDatabaseError(error) {
+  console.error("Firebase Realtime Database tidak dapat diakses.", error);
+  setFirebaseStatus("error", "Akses Firebase ditolak");
+  setAuthGate(true, "Akses data ditolak. Pastikan akun tim sudah dibuat, databaseURL benar, dan Realtime Database Rules sudah dipublish.");
+  showToast("Akses Realtime Database ditolak. Hubungi admin untuk memeriksa Rules atau databaseURL.");
+}
+
+async function signInWithPassword(event) {
+  event?.preventDefault();
+  const account = getSelectedTeamAccount();
+  const passwordInput = $("#authPasswordInput");
+  const signInButton = $("#passwordSignInButton");
+  const password = passwordInput?.value || "";
+
+  if (!account || password.trim().length < 6) {
+    setAuthGate(true, "Masukkan password minimal 6 karakter.");
+    passwordInput?.focus();
+    return;
+  }
+
+  try {
+    if (signInButton) {
+      signInButton.disabled = true;
+      signInButton.textContent = "Memeriksa akun...";
+    }
+    await signInWithEmailAndPassword(firebaseAuth, account.email, password);
+    if (passwordInput) passwordInput.value = "";
+  } catch (error) {
+    console.error("Login akun tim gagal.", error);
+    const loginMessage = error?.code === "auth/invalid-credential"
+      ? "Password tidak sesuai. Periksa kembali password akun yang dipilih."
+      : "Login belum berhasil. Pastikan Email/Password aktif dan akun tim sudah dibuat di Firebase.";
+    setAuthGate(true, loginMessage);
+    showToast("Login belum berhasil.");
+  } finally {
+    updateAuthForm();
+  }
+}
+
+async function signOutFromFirebase() {
+  try {
+    await signOut(firebaseAuth);
+  } catch (error) {
+    console.error("Gagal keluar dari Firebase.", error);
+    showToast("Tidak dapat keluar dari akun Firebase.");
+  }
+}
+
+function initializeFirebaseRealtime() {
+  firebaseBootstrapComplete = true;
+  setAuthGate(true, "Pilih akun tim lalu masukkan password.");
+  setFirebaseStatus("connecting", "Menunggu login");
+
+  onAuthStateChanged(firebaseAuth, (user) => {
+    currentFirebaseUser = user;
+    updateUserChip(user);
+
+    if (!user) {
+      stopRealtimeDatabaseListeners();
+      state.plotings = [];
+      state.masters = normalizeMasters(defaultMasters, []);
+      renderAll();
+      setFirebaseStatus("connecting", "Menunggu login");
+      setAuthGate(true, "Pilih akun tim lalu masukkan password.");
+      return;
+    }
+
+    setAuthGate(false);
+    setFirebaseStatus("connecting", "Menghubungkan");
+    subscribeToRealtimeDatabase();
+  });
 }
 
 function populateSelects() {
@@ -1042,6 +1367,10 @@ function bindEvents() {
   $("#addScheduleButton").addEventListener("click", () => addScheduleRow(addDays(state.operationDate, 1), 1, "Planned", ""));
   $("#exportPlotingsExcelButton").addEventListener("click", exportPlotingsExcel);
   $("#exportPicExcelButton").addEventListener("click", exportPicExcel);
+  $("#authLoginForm").addEventListener("submit", signInWithPassword);
+  $$(".auth-account-button").forEach((button) => button.addEventListener("click", () => selectTeamAccount(button.dataset.teamAccount, true)));
+  $("#authPasswordInput").addEventListener("input", updateAuthForm);
+  $("#signOutButton").addEventListener("click", signOutFromFirebase);
 
   $("#operationDate").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#dailyDateInput").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
@@ -1119,3 +1448,4 @@ function bindEvents() {
 
 bindEvents();
 renderAll();
+initializeFirebaseRealtime();

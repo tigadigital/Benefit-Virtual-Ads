@@ -8,6 +8,33 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
+    <div class="auth-card">
+      <div class="auth-brand"><span>VA</span><div><p>BENEFIT MANAGEMENT</p><strong>VA Ploting</strong></div></div>
+      <h2 id="authGateTitle">Masuk ke VA Ploting</h2>
+      <p id="authGateMessage">Pilih akun tim lalu masukkan password.</p>
+
+      <form id="authLoginForm" class="auth-login-form" novalidate>
+        <fieldset class="auth-account-picker">
+          <legend>Pilih akun</legend>
+          <div class="auth-account-grid">
+            <button class="auth-account-button is-selected" type="button" data-team-account="rakha" aria-pressed="true"><span>R</span><strong>Rakha</strong></button>
+            <button class="auth-account-button" type="button" data-team-account="adhi" aria-pressed="false"><span>A</span><strong>Adhi</strong></button>
+            <button class="auth-account-button" type="button" data-team-account="rian" aria-pressed="false"><span>R</span><strong>Rian</strong></button>
+          </div>
+        </fieldset>
+
+        <label class="auth-password-field" for="authPasswordInput">
+          <span>Password untuk <strong id="authSelectedName">Rakha</strong></span>
+          <input id="authPasswordInput" type="password" autocomplete="current-password" required minlength="6" placeholder="Masukkan password" />
+        </label>
+
+        <button class="primary-button auth-login-button" id="passwordSignInButton" type="submit" disabled>Masuk</button>
+      </form>
+      <p class="auth-note">Akun hanya untuk tim VA. Jika password lupa, hubungi admin Firebase.</p>
+    </div>
+  </section>
+
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand-lockup">
@@ -46,6 +73,12 @@
           <h2 id="pageTitle">VA Benefit Ploting</h2>
         </div>
         <div class="topbar-actions">
+          <div class="sync-status" id="firebaseStatus" data-state="connecting" role="status" aria-live="polite" title="Status sinkronisasi Firebase Realtime Database">
+            <span class="sync-dot" aria-hidden="true"></span><span id="firebaseStatusText">Menghubungkan</span>
+          </div>
+          <button class="user-chip" id="signOutButton" type="button" title="Keluar dari akun" hidden>
+            <span id="authUserInitial">V</span><span id="authUserName">Akun</span><b>Keluar</b>
+          </button>
           <label class="top-date-control">
             <span>TANGGAL OPERASIONAL</span>
             <input id="operationDate" type="date" aria-label="Tanggal operasional" />
@@ -375,6 +408,6 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

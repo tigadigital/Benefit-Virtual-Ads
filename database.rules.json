@@ -1,0 +1,12 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "vaBenefitPloting": {
+      "shared": {
+        ".read": "auth != null && (auth.token.email === 'rakha@benefit-virtual-ads.app' || auth.token.email === 'adhi@benefit-virtual-ads.app' || auth.token.email === 'rian@benefit-virtual-ads.app')",
+        ".write": "auth != null && (auth.token.email === 'rakha@benefit-virtual-ads.app' || auth.token.email === 'adhi@benefit-virtual-ads.app' || auth.token.email === 'rian@benefit-virtual-ads.app')"
+      }
+    }
+  }
+}
