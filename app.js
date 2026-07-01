@@ -1,5 +1,5 @@
 /*
-  VA Benefit Ploting v0.26
+  VA Benefit Ploting v0.27
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
   - Pengaturan tanggal operasional tetap lokal pada browser masing-masing pengguna.
@@ -9,7 +9,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
-const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v26-settings";
+const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v27-settings";
 const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
 
 // Akun internal. Password sengaja tidak disimpan di kode website.
@@ -35,15 +35,15 @@ const firebaseConfig = {
   messagingSenderId: "707145076476",
   appId: "1:707145076476:web:582aaac96143a22803d179",
   measurementId: "G-2T269QR6NS",
-  // Jika instance Realtime Database Anda memakai URL regional, ganti nilai ini
-  // dengan URL persis dari Firebase Console > Realtime Database > Data.
-  databaseURL: "https://benefit-virtual-ads-default-rtdb.firebaseio.com"
+  // URL instance Realtime Database yang diverifikasi dari Firebase Console.
+  databaseURL: "https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
 const firebaseAuth = getAuth(firebaseApp);
 const realtimeDb = getDatabase(firebaseApp, firebaseConfig.databaseURL);
 const realtimeRootRef = ref(realtimeDb, REALTIME_DATABASE_ROOT);
+const realtimeConnectionRef = ref(realtimeDb, ".info/connected");
 const realtimeMastersRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/masters`);
 const realtimeSchedulesRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/schedules`);
 const getLocalIsoDate = () => {
@@ -94,6 +94,8 @@ let filters = {
 let toastTimer;
 let unsubscribeMasters = null;
 let unsubscribeSchedules = null;
+let unsubscribeConnection = null;
+let firebaseLoadTimeout = null;
 let currentFirebaseUser = null;
 let firebaseBootstrapComplete = false;
 let selectedTeamAccountId = "rakha";
@@ -391,11 +393,29 @@ async function syncStateToRealtimeDatabase() {
   }
 }
 
+function clearFirebaseLoadTimeout() {
+  if (firebaseLoadTimeout) window.clearTimeout(firebaseLoadTimeout);
+  firebaseLoadTimeout = null;
+}
+
+function startFirebaseLoadTimeout() {
+  clearFirebaseLoadTimeout();
+  firebaseLoadTimeout = window.setTimeout(() => {
+    if (!realtimeDatabaseReady()) {
+      setFirebaseStatus("error", "Database tidak merespons");
+      showToast("Realtime Database belum merespons. Periksa databaseURL, Rules, atau koneksi internet.");
+    }
+  }, 15000);
+}
+
 function stopRealtimeDatabaseListeners() {
   if (unsubscribeMasters) unsubscribeMasters();
   if (unsubscribeSchedules) unsubscribeSchedules();
+  if (unsubscribeConnection) unsubscribeConnection();
+  clearFirebaseLoadTimeout();
   unsubscribeMasters = null;
   unsubscribeSchedules = null;
+  unsubscribeConnection = null;
   firebaseMasterLoaded = false;
   firebaseSchedulesLoaded = false;
   remoteMasters = null;
@@ -405,6 +425,13 @@ function stopRealtimeDatabaseListeners() {
 function subscribeToRealtimeDatabase() {
   stopRealtimeDatabaseListeners();
   setFirebaseStatus("connecting", "Memuat data");
+  startFirebaseLoadTimeout();
+
+  unsubscribeConnection = onValue(realtimeConnectionRef, (snapshot) => {
+    if (realtimeDatabaseReady()) return;
+    const connected = snapshot.val() === true;
+    setFirebaseStatus("connecting", connected ? "Terhubung, memuat data" : "Menunggu koneksi");
+  });
 
   unsubscribeMasters = onValue(realtimeMastersRef, (snapshot) => {
     const cloudMasters = snapshot.exists() ? snapshot.val() : defaultMasters;
@@ -412,6 +439,7 @@ function subscribeToRealtimeDatabase() {
     remoteMasters = snapshot.exists() ? clone(state.masters) : null;
     firebaseMasterLoaded = true;
     if (realtimeDatabaseReady()) {
+      clearFirebaseLoadTimeout();
       renderAll();
       queueRealtimeDatabaseSync();
     }
@@ -425,6 +453,7 @@ function subscribeToRealtimeDatabase() {
     remotePlotings = new Map(state.plotings.map((plot) => [plot.id, firebaseRecord(plot)]));
     firebaseSchedulesLoaded = true;
     if (realtimeDatabaseReady()) {
+      clearFirebaseLoadTimeout();
       setFirebaseStatus("synced", "Tersimpan");
       renderAll();
       queueRealtimeDatabaseSync();
@@ -434,9 +463,18 @@ function subscribeToRealtimeDatabase() {
 
 function handleRealtimeDatabaseError(error) {
   console.error("Firebase Realtime Database tidak dapat diakses.", error);
-  setFirebaseStatus("error", "Akses Firebase ditolak");
-  setAuthGate(true, "Akses data ditolak. Pastikan akun tim sudah dibuat, databaseURL benar, dan Realtime Database Rules sudah dipublish.");
-  showToast("Akses Realtime Database ditolak. Hubungi admin untuk memeriksa Rules atau databaseURL.");
+  clearFirebaseLoadTimeout();
+  const code = String(error?.code || "");
+  const isPermissionError = code.includes("permission-denied");
+  const message = isPermissionError
+    ? "Akses database ditolak"
+    : "Koneksi database gagal";
+  const detail = isPermissionError
+    ? "Rules Realtime Database menolak akun ini. Pastikan Rules sudah dipublish dan email login sama dengan Rules."
+    : `Realtime Database tidak dapat diakses${code ? ` (${code})` : ""}. Periksa databaseURL dan koneksi internet.`;
+  setFirebaseStatus("error", message);
+  if (isPermissionError) setAuthGate(true, detail);
+  showToast(detail);
 }
 
 async function signInWithPassword(event) {

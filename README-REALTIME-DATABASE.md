@@ -1,4 +1,4 @@
-# VA Benefit Ploting v0.26 - Firebase Realtime Database
+# VA Benefit Ploting v0.27 - Firebase Realtime Database
 
 Versi ini memakai **Firebase Realtime Database**, bukan Cloud Firestore. Data Master Data dan seluruh jadwal ploting disimpan di path berikut:
 
@@ -9,15 +9,15 @@ vaBenefitPloting/shared/schedules/{scheduleId}
 
 Aplikasi mendengarkan perubahan secara realtime dengan Firebase Realtime Database. Saat Rakha, Adhi, atau Rian membuat, mengubah, menggeser, atau menghapus jadwal, browser anggota tim lain akan menerima pembaruan otomatis.
 
-## 1. Periksa Database URL
+## 1. Database URL sudah diperbaiki
 
-Konfigurasi Firebase yang diberikan sebelumnya belum memuat `databaseURL`. File `app.js` saat ini memakai URL default berikut:
+Versi ini sudah menggunakan URL Realtime Database yang tampil di Firebase Console Anda:
 
 ```js
-databaseURL: "https://benefit-virtual-ads-default-rtdb.firebaseio.com"
+databaseURL: "https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app"
 ```
 
-Buka Firebase Console > Realtime Database > Data lalu salin **Database URL** yang tampil di bagian atas. Jika URL Anda berbeda, terutama bila memakai lokasi regional seperti `*.firebasedatabase.app`, ganti nilai `databaseURL` pada `app.js` dengan URL persis dari console.
+Jangan mengganti URL ini dengan endpoint `firebaseio.com`. Instance Anda berada pada region `asia-southeast1` dan memakai domain `firebasedatabase.app`.
 
 ## 2. Aktifkan Firebase Authentication
 
@@ -83,3 +83,10 @@ https://tigadigital.github.io/Benefit-Virtual-Ads/
 - Data Firestore dari versi sebelumnya tidak dipindahkan otomatis ke Realtime Database.
 - Data di Realtime Database hanya dibuat setelah akun tim berhasil login dan Anda mulai menambah Master Data atau ploting.
 - Jika status sinkronisasi menunjukkan gagal, periksa `databaseURL`, Email/Password Authentication, Realtime Database Rules, dan koneksi internet.
+
+## 7. Jika status tetap “Database tidak merespons”
+
+1. Pastikan GitHub Pages sudah memakai file `app.js` v0.27. File `index.html` sudah menambahkan `?v=27` agar browser mengambil JavaScript baru.
+2. Buka Realtime Database > Rules lalu publish `database.rules.json`.
+3. Pastikan login memakai salah satu email yang ada di Rules.
+4. Buka Developer Tools > Console. Bila muncul `permission_denied`, masalahnya ada pada Rules. Bila muncul error koneksi, periksa Database URL dan jaringan.
