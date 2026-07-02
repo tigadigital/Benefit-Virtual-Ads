@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Sistem ploting benefit Virtual Ad dengan timeline dan master data." />
   <title>VA Benefit Ploting</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
+  <link rel="modulepreload" href="app.js?v=31" />
+  <link rel="stylesheet" href="style.css?v=30" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -48,9 +55,9 @@
       <div class="sidebar-unit-logos" aria-label="Logo Unit On Air">
         <p>UNIT ON AIR</p>
         <div>
-          <img src="assets/rcti.png" alt="RCTI" />
-          <img src="assets/mnctv.png" alt="MNCTV" />
-          <img src="assets/gtv.png" alt="GTV" />
+          <img src="assets/rcti.webp" alt="RCTI" decoding="async" />
+          <img src="assets/mnctv.webp" alt="MNCTV" decoding="async" />
+          <img src="assets/gtv.webp" alt="GTV" decoding="async" />
         </div>
       </div>
 
@@ -127,6 +134,7 @@
         <div class="section-intro panel">
           <div><p class="section-label">2026 VA DIGITAL</p><h3>Master Ploting VA</h3><p>Satu tempat untuk semua jadwal tayang.</p></div>
           <div class="section-action-group">
+            <button class="secondary-button" id="legacyImportButton" type="button">⇧ Import Data Lama</button>
             <button class="secondary-button" id="exportPlotingsExcelButton" type="button">⇩ Export Excel</button>
             <button class="primary-button" id="addPlotInlineButton" type="button">+ Tambah Ploting</button>
           </div>
@@ -411,7 +419,44 @@
     </form>
   </section>
 
+  <section class="modal-backdrop" id="legacyImportModalBackdrop" aria-hidden="true">
+    <div class="modal legacy-import-modal" role="dialog" aria-modal="true" aria-labelledby="legacyImportTitle">
+      <div class="modal-header">
+        <div><p class="section-label">MIGRASI DATA</p><h3 id="legacyImportTitle">Import Data Lama</h3></div>
+        <button class="icon-button close-modal" data-close-legacy-import type="button" aria-label="Tutup">×</button>
+      </div>
+
+      <div class="legacy-import-info">
+        <strong>Gunakan untuk mengimpor file 2026 VA yang sudah berjalan.</strong>
+        <p>File dibaca di browser, lalu jadwal yang valid disimpan ke Firebase Realtime Database. Data yang sudah ada tidak dihapus. Jadwal Juli 2026 otomatis dilewati karena sudah tersedia di aplikasi.</p>
+      </div>
+
+      <div class="legacy-import-form-grid">
+        <label class="legacy-upload-field">
+          <span>File Excel (.xlsx / .xls)</span>
+          <input id="legacyImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+          <small id="legacyImportFileName">Belum ada file dipilih</small>
+        </label>
+        <label>PIC default untuk data lama<select id="legacyImportPicInput"></select><small>Sumber Excel tidak memiliki kolom PIC ploting.</small></label>
+        <label>Status jadwal sebelum hari ini<select id="legacyImportPastStatusInput"></select><small>Spot 0 tetap otomatis menjadi Tidak tayang.</small></label>
+        <label>Status jadwal hari ini / mendatang<select id="legacyImportFutureStatusInput"></select></label>
+      </div>
+
+      <p class="legacy-import-error" id="legacyImportError" hidden></p>
+      <section class="legacy-import-preview" id="legacyImportPreview" hidden>
+        <div class="legacy-preview-head"><div><p class="section-label">RINGKASAN IMPORT</p><h4>Data siap ditinjau</h4></div><span id="legacyImportRange"></span></div>
+        <div class="legacy-import-summary" id="legacyImportSummary"></div>
+        <div class="legacy-import-warnings"><strong>Catatan konversi</strong><ul id="legacyImportWarnings"></ul></div>
+      </section>
+
+      <div class="modal-actions legacy-import-actions">
+        <button class="secondary-button" data-close-legacy-import type="button">Batal</button>
+        <button class="primary-button" id="legacyImportConfirmButton" type="button" disabled>Import ke Realtime Database</button>
+      </div>
+    </div>
+  </section>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=28"></script>
+  <script type="module" src="app.js?v=31"></script>
 </body>
 </html>

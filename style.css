@@ -1987,3 +1987,49 @@ textarea { min-height: 106px; padding: 11px; border-radius: 9px; font-size: 14px
   #brandView .brand-filter-controls label,
   .report-header-actions .brand-filter-controls label { min-width: 0; }
 }
+
+/* v0.29: status sinkronisasi lebih jelas tanpa menambah beban render. */
+.sync-status[data-state="connecting"] .sync-dot {
+  animation: syncPulse 1.2s ease-in-out infinite;
+}
+@keyframes syncPulse {
+  0%, 100% { opacity: .45; transform: scale(.86); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-status[data-state="connecting"] .sync-dot { animation: none; }
+}
+
+
+/* v0.30: Import data lama dari Excel */
+.legacy-import-modal { width: min(760px, 100%); }
+.legacy-import-info { margin: 20px 0; padding: 15px 16px; border: 1px solid #cae3e6; border-radius: 12px; background: #f1fafb; color: #214951; }
+.legacy-import-info strong { display: block; font-size: 14px; }
+.legacy-import-info p { margin: 5px 0 0; font-size: 13px; line-height: 1.55; color: #5c7378; }
+.legacy-import-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
+.legacy-import-form-grid label { display: grid; gap: 7px; color: #214951; font-size: 13px; font-weight: 800; }
+.legacy-import-form-grid select, .legacy-import-form-grid input[type="file"] { min-height: 44px; padding: 9px 11px; border: 1px solid #c8d7da; border-radius: 9px; background: #fff; color: #183d44; font-size: 14px; font-weight: 600; }
+.legacy-import-form-grid small { margin-top: -2px; font-weight: 500; font-size: 11px; line-height: 1.45; color: #74878c; }
+.legacy-upload-field { grid-column: 1 / -1; padding: 15px; border: 1px dashed #82afb7; border-radius: 12px; background: #fbfefe; }
+.legacy-upload-field input[type="file"] { padding: 8px; }
+.legacy-upload-field small { font-size: 12px; color: #48656a; }
+.legacy-import-error { margin: 16px 0 0; padding: 12px 14px; border: 1px solid #efacb4; border-radius: 10px; background: #fff4f5; color: #a12b3d; font-size: 13px; font-weight: 700; line-height: 1.5; }
+.legacy-import-preview { margin-top: 20px; padding: 17px; border: 1px solid #d7e4e7; border-radius: 13px; background: #fff; }
+.legacy-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 13px; border-bottom: 1px solid #e5edef; }
+.legacy-preview-head h4 { margin: 5px 0 0; color: #153e47; font-size: 17px; }
+.legacy-preview-head > span { max-width: 270px; color: #60787d; font-size: 12px; line-height: 1.5; text-align: right; }
+.legacy-import-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.legacy-import-summary > div { padding: 12px; border-radius: 10px; background: #f4f8f8; }
+.legacy-import-summary strong { display: block; color: #0d5660; font-size: 23px; line-height: 1; }
+.legacy-import-summary span { display: block; margin-top: 5px; color: #60787d; font-size: 11px; font-weight: 800; }
+.legacy-import-warnings { padding: 13px 14px; border-radius: 10px; background: #fffbf0; color: #70571d; font-size: 12px; line-height: 1.52; }
+.legacy-import-warnings strong { display: block; color: #57400b; font-size: 13px; }
+.legacy-import-warnings ul { margin: 8px 0 0; padding-left: 18px; }
+.legacy-import-actions { margin-top: 20px; }
+
+@media (max-width: 720px) {
+  .legacy-import-form-grid { grid-template-columns: 1fr; }
+  .legacy-import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .legacy-preview-head { display: block; }
+  .legacy-preview-head > span { display: block; max-width: none; margin-top: 7px; text-align: left; }
+}

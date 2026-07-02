@@ -1,9 +1,10 @@
 /*
-  VA Benefit Ploting v0.28
+  VA Benefit Ploting v0.31
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
   - Filter periode memakai Tahun + Bulan, serta Report PIC memakai Tahun + Kuartal.
+  - Performa awal dioptimalkan dengan render halaman aktif, cache aman per akun, dan sinkronisasi tanpa tulis ulang saat memuat data.
 */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
@@ -11,6 +12,8 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
 const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v28-settings";
+const LOCAL_CACHE_PREFIX = "va-benefit-ploting-v30-cache";
+const CACHE_SCHEMA_VERSION = 30;
 const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
 
 // Akun internal. Password sengaja tidak disimpan di kode website.
@@ -116,6 +119,64 @@ let firebaseSyncInProgress = false;
 let firebasePendingSync = false;
 let remoteMasters = null;
 let remotePlotings = new Map();
+let firebaseInitialHydrationComplete = false;
+let legacyImportSession = null;
+let sheetJsLoadingPromise = null;
+let legacyImportInProgress = false;
+
+// Data Juli 2026 sudah lebih dulu diinput langsung ke aplikasi.
+// Import data lama hanya mengambil periode Januari sampai Juni 2026.
+const LEGACY_IMPORT_EXCLUDED_MONTHS = new Set(["2026-07"]);
+
+function isExcludedLegacyImportMonth(isoDate) {
+  return LEGACY_IMPORT_EXCLUDED_MONTHS.has(String(isoDate || "").slice(0, 7));
+}
+
+function legacyExcludedMonthLabel(isoDate) {
+  const [year, month] = String(isoDate || "").slice(0, 7).split("-");
+  const label = MONTH_OPTIONS.find(([value]) => value === month)?.[1] || month;
+  return year && month ? `${label} ${year}` : "periode yang dikecualikan";
+}
+
+function realtimeCacheKey(user = currentFirebaseUser) {
+  return user?.uid ? `${LOCAL_CACHE_PREFIX}:${user.uid}` : "";
+}
+
+function readRealtimeCache(user = currentFirebaseUser) {
+  const key = realtimeCacheKey(user);
+  if (!key) return null;
+  try {
+    const cached = JSON.parse(localStorage.getItem(key) || "null");
+    if (!cached || !Array.isArray(cached.plotings)) return null;
+    return cached;
+  } catch (error) {
+    return null;
+  }
+}
+
+function hydrateRealtimeCache(user = currentFirebaseUser) {
+  const cached = readRealtimeCache(user);
+  if (!cached) return false;
+  state.plotings = sortByDate(normalizePlotings(cached.plotings));
+  state.masters = normalizeMasters(cached.masters || defaultMasters, state.plotings);
+  return true;
+}
+
+function persistRealtimeCache() {
+  const key = realtimeCacheKey();
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      schemaVersion: CACHE_SCHEMA_VERSION,
+      cachedAt: nowIso(),
+      masters: state.masters,
+      plotings: state.plotings
+    }));
+  } catch (error) {
+    // Cache bersifat opsional. Kegagalan quota tidak boleh mengganggu aplikasi.
+    console.warn("Cache lokal tidak dapat diperbarui.", error);
+  }
+}
 
 function normalizeMasters(rawMasters, plotings) {
   // Gunakan data yang tersimpan sebagai sumber utama. Default dipakai hanya saat
@@ -157,8 +218,9 @@ function loadState() {
 }
 
 function saveState() {
-  // Tanggal operasional tidak lagi disimpan di browser agar pembukaan berikutnya
-  // otomatis kembali ke tanggal hari ini. Data ploting dan master tetap realtime.
+  // Tanggal operasional tidak disimpan agar pembukaan berikutnya kembali ke hari ini.
+  // Cache data hanya dipakai untuk mempercepat tampilan awal akun yang sama.
+  persistRealtimeCache();
   queueRealtimeDatabaseSync();
 }
 
@@ -230,9 +292,9 @@ function spotMarkup(spot, extraClass = "") {
 }
 
 const UNIT_LOGOS = {
-  RCTI: "assets/rcti.png",
-  MNCTV: "assets/mnctv.png",
-  GTV: "assets/gtv.png"
+  RCTI: "assets/rcti.webp",
+  MNCTV: "assets/mnctv.webp",
+  GTV: "assets/gtv.webp"
 };
 
 function unitLabelMarkup(unit, variant = "default") {
@@ -377,7 +439,7 @@ function queueRealtimeDatabaseSync() {
   window.setTimeout(() => {
     firebaseSyncQueued = false;
     syncStateToRealtimeDatabase();
-  }, 120);
+  }, 180);
 }
 
 async function syncStateToRealtimeDatabase() {
@@ -414,7 +476,7 @@ async function syncStateToRealtimeDatabase() {
       return;
     }
 
-    updates.schemaVersion = 28;
+    updates.schemaVersion = 30;
     updates.updatedAt = nowIso();
     await update(realtimeRootRef, updates);
 
@@ -459,11 +521,12 @@ function stopRealtimeDatabaseListeners() {
   firebaseSchedulesLoaded = false;
   remoteMasters = null;
   remotePlotings = new Map();
+  firebaseInitialHydrationComplete = false;
 }
 
 function subscribeToRealtimeDatabase() {
   stopRealtimeDatabaseListeners();
-  setFirebaseStatus("connecting", "Memuat data");
+  setFirebaseStatus("connecting", state.plotings.length ? "Memuat pembaruan" : "Memuat data");
   startFirebaseLoadTimeout();
 
   unsubscribeConnection = onValue(realtimeConnectionRef, (snapshot) => {
@@ -474,14 +537,13 @@ function subscribeToRealtimeDatabase() {
 
   unsubscribeMasters = onValue(realtimeMastersRef, (snapshot) => {
     const cloudMasters = snapshot.exists() ? snapshot.val() : defaultMasters;
-    state.masters = normalizeMasters(cloudMasters, state.plotings);
+    // Saat cache lokal sedang ditampilkan, master cloud tetap menjadi sumber utama.
+    // Jadwal cache baru digabung setelah snapshot jadwal realtime diterima.
+    state.masters = normalizeMasters(cloudMasters, firebaseSchedulesLoaded ? state.plotings : []);
     remoteMasters = snapshot.exists() ? clone(state.masters) : null;
     firebaseMasterLoaded = true;
-    if (realtimeDatabaseReady()) {
-      clearFirebaseLoadTimeout();
-      renderAll();
-      queueRealtimeDatabaseSync();
-    }
+
+    if (realtimeDatabaseReady()) finishRealtimeHydration();
   }, (error) => handleRealtimeDatabaseError(error));
 
   unsubscribeSchedules = onValue(realtimeSchedulesRef, (snapshot) => {
@@ -491,13 +553,25 @@ function subscribeToRealtimeDatabase() {
     state.masters = normalizeMasters(state.masters, state.plotings);
     remotePlotings = new Map(state.plotings.map((plot) => [plot.id, firebaseRecord(plot)]));
     firebaseSchedulesLoaded = true;
-    if (realtimeDatabaseReady()) {
-      clearFirebaseLoadTimeout();
-      setFirebaseStatus("synced", "Tersimpan");
-      renderAll();
-      queueRealtimeDatabaseSync();
-    }
+
+    if (realtimeDatabaseReady()) finishRealtimeHydration();
   }, (error) => handleRealtimeDatabaseError(error));
+}
+
+function finishRealtimeHydration() {
+  clearFirebaseLoadTimeout();
+  const wasInitialLoad = !firebaseInitialHydrationComplete;
+  firebaseInitialHydrationComplete = true;
+  persistRealtimeCache();
+  setFirebaseStatus("synced", "Tersimpan");
+
+  // Render hanya halaman yang sedang dilihat. Kalender dan laporan lain baru
+  // dirender ketika menu tersebut dibuka, sehingga halaman awal lebih cepat.
+  renderAll();
+
+  // Jangan tulis ulang seluruh database setelah snapshot awal selesai.
+  // Perubahan baru dari pengguna tetap disimpan melalui saveState().
+  if (!wasInitialLoad) return;
 }
 
 function handleRealtimeDatabaseError(error) {
@@ -576,8 +650,16 @@ function initializeFirebaseRealtime() {
       return;
     }
 
+    // Tampilkan cache akun ini lebih dulu agar dashboard tidak menunggu seluruh
+    // snapshot database. Data cache langsung diganti oleh snapshot realtime terbaru.
+    const restoredFromCache = hydrateRealtimeCache(user);
     setAuthGate(false);
-    setFirebaseStatus("connecting", "Menghubungkan");
+    if (restoredFromCache) {
+      setFirebaseStatus("connecting", "Memuat pembaruan");
+      renderAll();
+    } else {
+      setFirebaseStatus("connecting", "Menghubungkan");
+    }
     subscribeToRealtimeDatabase();
   });
 }
@@ -930,16 +1012,25 @@ function renderMasters() {
   $("#masterGrid").innerHTML = Object.entries(MASTER_META).map(([key, meta]) => `<article class="panel master-card"><div class="master-card-head"><div><p class="section-label">MASTER</p><h4>${escapeHTML(meta.label)}</h4></div><span>${state.masters[key].length} item</span></div><div class="master-list">${state.masters[key].map((value) => `<div class="master-list-item"><span>${escapeHTML(value)}</span><button class="master-delete" data-master-delete="${key}" data-master-value="${encodeURIComponent(value)}" type="button">Hapus</button></div>`).join("")}</div></article>`).join("");
 }
 
+function renderActiveView() {
+  const renderers = {
+    dashboard: renderDashboard,
+    plotings: renderPlotings,
+    daily: renderDaily,
+    fulltimeline: renderFullTimeline,
+    brand: renderBrand,
+    picreport: renderPicReport,
+    masters: renderMasters
+  };
+  renderers[activeView]?.();
+}
+
 function renderAll() {
+  // Sebelumnya seluruh tabel, kalender, report, dan master dirender sekaligus.
+  // Untuk data yang semakin besar, pola itu memperlambat tampilan awal.
   populateSelects();
   $("#operationDate").value = state.operationDate;
-  renderDashboard();
-  renderPlotings();
-  renderDaily();
-  renderFullTimeline();
-  renderBrand();
-  renderPicReport();
-  renderMasters();
+  renderActiveView();
   updatePageTitle();
 }
 
@@ -963,6 +1054,9 @@ function setView(view) {
   activeView = view;
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$("[data-view-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === view));
+  // Render halaman saat dibuka, bukan pada saat aplikasi pertama kali dimuat.
+  populateSelects();
+  renderActiveView();
   updatePageTitle();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1326,6 +1420,464 @@ function deleteMasterValue(key, encodedValue) {
   showToast(`${meta.label} dihapus dari Master Data.`);
 }
 
+
+// Import data lama dari file Excel 2026 VA. Library SheetJS dimuat hanya ketika
+// pengguna memilih file, sehingga performa loading utama tidak terpengaruh.
+const LEGACY_IMPORT_REQUIRED_FIELDS = ["brand", "sales", "pod", "unit", "program", "format", "planAiring"];
+const LEGACY_IMPORT_ALIASES = {
+  advertiser: ["ADVERTISER", "PT ADVERTISER", "PT"],
+  brand: ["BRAND"],
+  pod: ["POD"],
+  sales: ["SALES NAME", "NAMA SALES", "SALES"],
+  unit: ["UNIT ON AIR", "UNIT"],
+  program: ["PROGRAM"],
+  version: ["VERSI VA", "VERSION VA", "VERSI"],
+  format: ["FORMAT VA", "FORMAT"],
+  duration: ["DURASI", "DURATION"],
+  gfx: ["MATERI GFX", "GFX", "MATERI"],
+  spot: ["SPOT", "JUMLAH SPOT"],
+  planAiring: ["PLAN AIRING", "TANGGAL TAYANG", "TANGGAL AIRING", "TANGGAL"],
+  segmentation: ["SEGMENTASI", "SEGMENTATION"],
+  note: ["NOTE", "CATATAN", "NOTES"]
+};
+
+function normalizeLegacyHeader(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function normalizeLegacyText(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeLegacyDuration(value) {
+  const text = normalizeLegacyText(value);
+  const map = {
+    '5"': '5 detik',
+    '10"': '10 detik',
+    '15"': '15 detik',
+    '20"': '20 detik',
+    '30"': '30 detik',
+    '10" + 10"': '10 + 10 detik',
+    '10"+10"': '10 + 10 detik'
+  };
+  return map[text] || text || 'Belum ada durasi';
+}
+
+function normalizeLegacySpot(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return 0;
+  const parsed = Number(String(value).replace(/,/g, ".").trim());
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+}
+
+function padNumber(value) {
+  return String(value).padStart(2, "0");
+}
+
+function legacyDateToIso(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${padNumber(value.getMonth() + 1)}-${padNumber(value.getDate())}`;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = window.XLSX?.SSF?.parse_date_code?.(value);
+    if (parsed?.y && parsed?.m && parsed?.d) return `${parsed.y}-${padNumber(parsed.m)}-${padNumber(parsed.d)}`;
+    const excelOrigin = Date.UTC(1899, 11, 30);
+    const date = new Date(excelOrigin + Math.round(value) * 86_400_000);
+    if (!Number.isNaN(date.getTime())) return `${date.getUTCFullYear()}-${padNumber(date.getUTCMonth() + 1)}-${padNumber(date.getUTCDate())}`;
+  }
+
+  const text = normalizeLegacyText(value);
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (match) return `${match[3]}-${padNumber(match[2])}-${padNumber(match[1])}`;
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) return `${parsed.getFullYear()}-${padNumber(parsed.getMonth() + 1)}-${padNumber(parsed.getDate())}`;
+  return "";
+}
+
+function simpleLegacyHash(value) {
+  let hash = 2166136261;
+  const text = String(value ?? "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function legacyImportStatus(spot, planAiring, options) {
+  if (spot === 0) return "Tidak tayang";
+  return planAiring < getLocalIsoDate() ? options.pastStatus : options.currentFutureStatus;
+}
+
+function legacyBatchSignature(record) {
+  return [
+    record.advertiser, record.brand, record.pod, record.sales, record.unit,
+    record.program, record.version, record.format, record.duration, record.gfx,
+    record.segmentation
+  ].join("∥");
+}
+
+function maxIdNumber(prefix, values) {
+  return values.reduce((max, value) => {
+    const match = String(value || "").match(new RegExp(`^${prefix}-(\\d+)$`));
+    return Math.max(max, match ? Number(match[1]) : 0);
+  }, 0);
+}
+
+function importedId(prefix, serial) {
+  return `${prefix}-${String(serial).padStart(6, "0")}`;
+}
+
+function getDefaultLegacyImportPic() {
+  const activeName = TEAM_ACCOUNT_BY_EMAIL[String(currentFirebaseUser?.email || "").toLowerCase()]?.name;
+  return state.masters.pics.includes(activeName) ? activeName : "Belum ditetapkan";
+}
+
+function ensureLegacyImportPicOptions(selectedValue = "") {
+  const values = sortText(unique(["Belum ditetapkan", ...state.masters.pics]));
+  setSelectOptions("#legacyImportPicInput", values, "Pilih PIC default", selectedValue || getDefaultLegacyImportPic());
+}
+
+function updateLegacyImportActions() {
+  const importButton = $("#legacyImportConfirmButton");
+  const session = legacyImportSession;
+  const canImport = Boolean(session && session.records?.length && !session.duplicateRecords && realtimeDatabaseReady() && !legacyImportInProgress);
+  if (importButton) importButton.disabled = !canImport;
+}
+
+function openLegacyImportModal() {
+  legacyImportSession = null;
+  legacyImportInProgress = false;
+  $("#legacyImportFile").value = "";
+  $("#legacyImportFileName").textContent = "Belum ada file dipilih";
+  $("#legacyImportPreview").hidden = true;
+  $("#legacyImportError").hidden = true;
+  $("#legacyImportError").textContent = "";
+  $("#legacyImportConfirmButton").textContent = "Import ke Realtime Database";
+  ensureLegacyImportPicOptions();
+  setSelectOptions("#legacyImportPastStatusInput", ["Sudah tayang", "On air", "Siap tayang", "Planned"], "Status tanggal lalu", "Sudah tayang");
+  setSelectOptions("#legacyImportFutureStatusInput", ["Planned", "Siap tayang", "On air", "Sudah tayang"], "Status hari ini / mendatang", "Planned");
+  $("#legacyImportModalBackdrop").classList.add("open");
+  $("#legacyImportModalBackdrop").setAttribute("aria-hidden", "false");
+  updateLegacyImportActions();
+  setTimeout(() => $("#legacyImportFile")?.focus(), 40);
+}
+
+function closeLegacyImportModal() {
+  if (legacyImportInProgress) return;
+  $("#legacyImportModalBackdrop").classList.remove("open");
+  $("#legacyImportModalBackdrop").setAttribute("aria-hidden", "true");
+}
+
+function loadSheetJs() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (sheetJsLoadingPromise) return sheetJsLoadingPromise;
+
+  sheetJsLoadingPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    script.async = true;
+    script.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error("SheetJS tidak tersedia setelah dimuat."));
+    script.onerror = () => reject(new Error("Library pembaca Excel tidak dapat dimuat."));
+    document.head.appendChild(script);
+  });
+  return sheetJsLoadingPromise;
+}
+
+function getLegacyColumnMap(headerRow) {
+  const indexedHeaders = headerRow.map((value, index) => ({ value: normalizeLegacyHeader(value), index }));
+  return Object.entries(LEGACY_IMPORT_ALIASES).reduce((map, [field, aliases]) => {
+    const match = indexedHeaders.find((header) => aliases.includes(header.value));
+    if (match) map[field] = match.index;
+    return map;
+  }, {});
+}
+
+function legacyValueFromRow(row, columnMap, field) {
+  const index = columnMap[field];
+  return index === undefined ? "" : row[index];
+}
+
+function validateLegacyWorkbook(workbook) {
+  const sheetName = workbook.SheetNames?.[0];
+  if (!sheetName) throw new Error("Workbook tidak memiliki sheet yang dapat dibaca.");
+  const sheet = workbook.Sheets[sheetName];
+  const matrix = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true });
+  const headerRowIndex = matrix.findIndex((row) => {
+    const normalized = row.map(normalizeLegacyHeader);
+    return normalized.includes("BRAND") && normalized.includes("PLAN AIRING");
+  });
+  if (headerRowIndex < 0) throw new Error("Header Excel tidak ditemukan. Pastikan file memakai kolom BRAND dan PLAN AIRING.");
+
+  const columnMap = getLegacyColumnMap(matrix[headerRowIndex]);
+  const missingColumns = LEGACY_IMPORT_REQUIRED_FIELDS.filter((field) => columnMap[field] === undefined);
+  if (missingColumns.length) {
+    const labels = missingColumns.map((field) => LEGACY_IMPORT_ALIASES[field][0]).join(", ");
+    throw new Error(`Kolom wajib belum ditemukan: ${labels}.`);
+  }
+  return { sheetName, matrix, headerRowIndex, columnMap };
+}
+
+function buildLegacyImportSession(file, workbook, options) {
+  const { sheetName, matrix, headerRowIndex, columnMap } = validateLegacyWorkbook(workbook);
+  const fileKey = simpleLegacyHash(`${file.name}|${file.size}|${file.lastModified}`);
+  const warnings = { blankAdvertiser: 0, blankVersion: 0, blankDuration: 0, blankGfx: 0, blankSpot: 0 };
+  const skipped = [];
+  const excluded = [];
+  const prepared = [];
+
+  matrix.slice(headerRowIndex + 1).forEach((row, index) => {
+    const sourceRow = headerRowIndex + index + 2;
+    const raw = {
+      advertiser: legacyValueFromRow(row, columnMap, "advertiser"),
+      brand: legacyValueFromRow(row, columnMap, "brand"),
+      pod: legacyValueFromRow(row, columnMap, "pod"),
+      sales: legacyValueFromRow(row, columnMap, "sales"),
+      unit: legacyValueFromRow(row, columnMap, "unit"),
+      program: legacyValueFromRow(row, columnMap, "program"),
+      version: legacyValueFromRow(row, columnMap, "version"),
+      format: legacyValueFromRow(row, columnMap, "format"),
+      duration: legacyValueFromRow(row, columnMap, "duration"),
+      gfx: legacyValueFromRow(row, columnMap, "gfx"),
+      spot: legacyValueFromRow(row, columnMap, "spot"),
+      planAiring: legacyValueFromRow(row, columnMap, "planAiring"),
+      segmentation: legacyValueFromRow(row, columnMap, "segmentation"),
+      note: legacyValueFromRow(row, columnMap, "note")
+    };
+
+    const isBlankRow = Object.values(raw).every((value) => normalizeLegacyText(value) === "");
+    if (isBlankRow) return;
+
+    const planAiring = legacyDateToIso(raw.planAiring);
+    if (isExcludedLegacyImportMonth(planAiring)) {
+      excluded.push({ sourceRow, planAiring, period: legacyExcludedMonthLabel(planAiring) });
+      return;
+    }
+
+    const requiredText = {
+      brand: normalizeLegacyText(raw.brand), pod: normalizeLegacyText(raw.pod), sales: normalizeLegacyText(raw.sales),
+      unit: normalizeLegacyText(raw.unit), program: normalizeLegacyText(raw.program), format: normalizeLegacyText(raw.format), planAiring
+    };
+    const missing = LEGACY_IMPORT_REQUIRED_FIELDS.filter((field) => !requiredText[field]);
+    if (missing.length) {
+      skipped.push({ sourceRow, reason: `Kolom kosong: ${missing.map((field) => LEGACY_IMPORT_ALIASES[field][0]).join(", ")}` });
+      return;
+    }
+
+    if (!normalizeLegacyText(raw.advertiser)) warnings.blankAdvertiser += 1;
+    if (!normalizeLegacyText(raw.version)) warnings.blankVersion += 1;
+    if (!normalizeLegacyText(raw.duration)) warnings.blankDuration += 1;
+    if (!normalizeLegacyText(raw.gfx)) warnings.blankGfx += 1;
+    if (raw.spot === "" || raw.spot === null || raw.spot === undefined) warnings.blankSpot += 1;
+
+    const spot = normalizeLegacySpot(raw.spot);
+    const record = {
+      sourceRow,
+      advertiser: normalizeLegacyText(raw.advertiser) || "Belum ada PT Advertiser",
+      brand: requiredText.brand,
+      pod: requiredText.pod,
+      sales: requiredText.sales,
+      unit: requiredText.unit,
+      program: requiredText.program,
+      version: normalizeLegacyText(raw.version) || "Belum ada versi",
+      format: requiredText.format,
+      duration: normalizeLegacyDuration(raw.duration),
+      gfx: normalizeLegacyText(raw.gfx) || "Belum ada materi",
+      spot,
+      planAiring,
+      segmentation: normalizeLegacyText(raw.segmentation),
+      scheduleNote: normalizeLegacyText(raw.note),
+      pic: options.pic || "Belum ditetapkan"
+    };
+    record.legacyFingerprint = simpleLegacyHash([
+      record.sourceRow, record.advertiser, record.brand, record.pod, record.sales, record.unit,
+      record.program, record.version, record.format, record.duration, record.gfx, record.spot,
+      record.planAiring, record.segmentation, record.scheduleNote
+    ].join("∥"));
+    prepared.push(record);
+  });
+
+  if (!prepared.length) throw new Error("Tidak ada jadwal valid yang dapat diimpor dari file ini.");
+
+  const existingFingerprints = new Set(state.plotings.map((plot) => plot.legacyFingerprint).filter(Boolean));
+  const duplicateRecords = prepared.filter((record) => existingFingerprints.has(record.legacyFingerprint)).length;
+
+  let batchSerial = maxIdNumber("BEN", state.plotings.map((plot) => plot.batchId));
+  let scheduleSerial = maxIdNumber("SCH", state.plotings.map((plot) => plot.id));
+  let activeSignature = "";
+  let activeBatchId = "";
+  let activeDates = new Set();
+  const importedAt = nowIso();
+  const records = [];
+
+  prepared.forEach((record) => {
+    const signature = legacyBatchSignature(record);
+    if (!activeBatchId || signature !== activeSignature || activeDates.has(record.planAiring)) {
+      batchSerial += 1;
+      activeBatchId = importedId("BEN", batchSerial);
+      activeSignature = signature;
+      activeDates = new Set();
+    }
+    activeDates.add(record.planAiring);
+    scheduleSerial += 1;
+    records.push({
+      id: importedId("SCH", scheduleSerial),
+      batchId: activeBatchId,
+      advertiser: record.advertiser,
+      brand: record.brand,
+      sales: record.sales,
+      pic: record.pic,
+      unit: record.unit,
+      program: record.program,
+      pod: record.pod,
+      version: record.version,
+      format: record.format,
+      duration: record.duration,
+      gfx: record.gfx,
+      segmentation: record.segmentation,
+      batchNote: "",
+      planAiring: record.planAiring,
+      spot: record.spot,
+      airingStatus: legacyImportStatus(record.spot, record.planAiring, options),
+      scheduleNote: record.scheduleNote,
+      createdAt: importedAt,
+      updatedAt: importedAt,
+      legacyImport: true,
+      legacySourceFile: file.name,
+      legacySourceSheet: sheetName,
+      legacySourceRow: record.sourceRow,
+      legacyFingerprint: record.legacyFingerprint,
+      legacyImportedAt: importedAt
+    });
+  });
+
+  return {
+    file,
+    fileKey,
+    sheetName,
+    records,
+    importedAt,
+    warnings,
+    skipped,
+    excluded,
+    duplicateRecords,
+    batchCount: unique(records.map((record) => record.batchId)).length,
+    dateRange: [records[0].planAiring, records.at(-1).planAiring].sort(),
+    options
+  };
+}
+
+function renderLegacyImportPreview(session) {
+  const preview = $("#legacyImportPreview");
+  const errorBox = $("#legacyImportError");
+  errorBox.hidden = true;
+  errorBox.textContent = "";
+  preview.hidden = false;
+  const totalSpot = sum(session.records.map((record) => record.spot));
+  const zeroSpot = session.records.filter((record) => record.spot === 0).length;
+  $("#legacyImportSummary").innerHTML = [
+    ["Jadwal akan diimport", session.records.length], ["Batch dibuat", session.batchCount],
+    ["Total spot", totalSpot], ["0 spot", zeroSpot],
+    ["Dilewati: Juli 2026", session.excluded?.length || 0]
+  ].map(([label, value]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join("");
+  $("#legacyImportRange").textContent = `${formatDate(session.dateRange[0])} s.d. ${formatDate(session.dateRange[1])} · Sheet: ${session.sheetName}`;
+
+  const warningMessages = [];
+  if (session.warnings.blankAdvertiser) warningMessages.push(`${session.warnings.blankAdvertiser} PT Advertiser kosong diisi “Belum ada PT Advertiser”.`);
+  if (session.warnings.blankVersion) warningMessages.push(`${session.warnings.blankVersion} Versi VA kosong diisi “Belum ada versi”.`);
+  if (session.warnings.blankDuration) warningMessages.push(`${session.warnings.blankDuration} Durasi kosong diisi “Belum ada durasi”.`);
+  if (session.warnings.blankGfx) warningMessages.push(`${session.warnings.blankGfx} Materi GFX kosong diisi “Belum ada materi”.`);
+  if (session.warnings.blankSpot) warningMessages.push(`${session.warnings.blankSpot} Spot kosong diisi 0 dan diberi status Tidak tayang.`);
+  if (session.excluded?.length) warningMessages.push(`${session.excluded.length} jadwal pada Juli 2026 tidak akan diimport karena sudah ada di aplikasi.`);
+  if (session.skipped.length) warningMessages.push(`${session.skipped.length} baris dilewati karena data wajib tidak lengkap.`);
+  if (session.duplicateRecords) warningMessages.push(`${session.duplicateRecords} baris tampak sudah ada di database. Import diblokir untuk mencegah data ganda.`);
+  $("#legacyImportWarnings").innerHTML = warningMessages.length
+    ? warningMessages.map((message) => `<li>${escapeHTML(message)}</li>`).join("")
+    : "<li>Data siap diimpor. Tidak ada kolom wajib yang terlewat.</li>";
+  $("#legacyImportConfirmButton").textContent = session.duplicateRecords ? "Data sudah pernah diimpor" : `Import ${session.records.length} jadwal`;
+  updateLegacyImportActions();
+}
+
+async function previewLegacyExcel(file) {
+  if (!file) return;
+  if (!/\.(xlsx|xls)$/i.test(file.name)) {
+    $("#legacyImportError").hidden = false;
+    $("#legacyImportError").textContent = "Pilih file Excel dengan ekstensi .xlsx atau .xls.";
+    return;
+  }
+  if (!realtimeDatabaseReady()) {
+    $("#legacyImportError").hidden = false;
+    $("#legacyImportError").textContent = "Tunggu sampai Realtime Database berstatus Tersimpan sebelum mengimpor.";
+    return;
+  }
+
+  $("#legacyImportFileName").textContent = `Membaca ${file.name}...`;
+  $("#legacyImportPreview").hidden = true;
+  $("#legacyImportError").hidden = true;
+  try {
+    const XLSX = await loadSheetJs();
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+    const options = {
+      pic: $("#legacyImportPicInput").value || "Belum ditetapkan",
+      pastStatus: $("#legacyImportPastStatusInput").value || "Sudah tayang",
+      currentFutureStatus: $("#legacyImportFutureStatusInput").value || "Planned"
+    };
+    legacyImportSession = buildLegacyImportSession(file, workbook, options);
+    $("#legacyImportFileName").textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
+    renderLegacyImportPreview(legacyImportSession);
+  } catch (error) {
+    console.error("Gagal membaca file legacy.", error);
+    legacyImportSession = null;
+    $("#legacyImportFileName").textContent = "File tidak dapat dibaca";
+    $("#legacyImportError").hidden = false;
+    $("#legacyImportError").textContent = error?.message || "File Excel tidak dapat diproses.";
+    updateLegacyImportActions();
+  }
+}
+
+async function commitLegacyImport() {
+  const session = legacyImportSession;
+  if (!session?.records?.length || session.duplicateRecords) return;
+  if (!realtimeDatabaseReady()) { showToast("Realtime Database belum siap. Coba lagi setelah status Tersimpan."); return; }
+  if (!window.confirm(`Import ${session.records.length} jadwal menjadi ${session.batchCount} batch ke Realtime Database? Data ini akan langsung terlihat oleh seluruh tim.`)) return;
+
+  legacyImportInProgress = true;
+  updateLegacyImportActions();
+  $("#legacyImportConfirmButton").textContent = "Mengimpor data...";
+  setFirebaseStatus("saving", "Mengimpor data lama");
+
+  const previousState = clone(state);
+  try {
+    const importedRecords = normalizePlotings(session.records);
+    state.plotings = sortByDate([...state.plotings, ...importedRecords]);
+    state.masters = normalizeMasters(state.masters, state.plotings);
+
+    const updates = { masters: cleanFirebaseValue(state.masters), schemaVersion: 30, updatedAt: nowIso() };
+    importedRecords.forEach((record) => { updates[`schedules/${record.id}`] = firebaseRecord(record); });
+    await update(realtimeRootRef, updates);
+
+    importedRecords.forEach((record) => remotePlotings.set(record.id, firebaseRecord(record)));
+    remoteMasters = clone(state.masters);
+    persistRealtimeCache();
+    setFirebaseStatus("synced", "Tersimpan");
+    closeLegacyImportModal();
+    renderAll();
+    showToast(`${importedRecords.length} jadwal lama berhasil diimpor.`);
+  } catch (error) {
+    console.error("Gagal mengimpor data lama ke Realtime Database.", error);
+    state = previousState;
+    renderAll();
+    setFirebaseStatus("error", "Import gagal");
+    showToast("Import gagal. Data tidak diterapkan ke tampilan. Periksa Rules dan koneksi, lalu coba lagi.");
+  } finally {
+    legacyImportInProgress = false;
+    updateLegacyImportActions();
+  }
+}
+
 function xmlEscape(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1461,6 +2013,12 @@ function bindEvents() {
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $("#primaryActionButton").addEventListener("click", () => openPlotModal());
   $("#addPlotInlineButton").addEventListener("click", () => openPlotModal());
+  $("#legacyImportButton").addEventListener("click", openLegacyImportModal);
+  $("#legacyImportFile").addEventListener("change", (event) => previewLegacyExcel(event.target.files?.[0]));
+  $("#legacyImportPicInput").addEventListener("change", () => { if (legacyImportSession) previewLegacyExcel(legacyImportSession.file); });
+  $("#legacyImportPastStatusInput").addEventListener("change", () => { if (legacyImportSession) previewLegacyExcel(legacyImportSession.file); });
+  $("#legacyImportFutureStatusInput").addEventListener("change", () => { if (legacyImportSession) previewLegacyExcel(legacyImportSession.file); });
+  $("#legacyImportConfirmButton").addEventListener("click", commitLegacyImport);
   $("#plotForm").addEventListener("submit", savePlotFromForm);
   $("#scheduleEditForm").addEventListener("submit", saveScheduleFromForm);
   $("#scheduleEditStatusInput").addEventListener("change", syncScheduleSlideControls);
@@ -1508,6 +2066,8 @@ function bindEvents() {
     if (closeButton) { closePlotModal(); return; }
     const closeScheduleButton = event.target.closest("[data-close-schedule-modal]");
     if (closeScheduleButton) { closeScheduleModal(); return; }
+    const closeLegacyImportButton = event.target.closest("[data-close-legacy-import]");
+    if (closeLegacyImportButton) { closeLegacyImportModal(); return; }
     const editSchedule = event.target.closest("[data-edit-schedule]");
     if (editSchedule) { openScheduleModal(editSchedule.dataset.editSchedule); return; }
     const editBatch = event.target.closest("[data-edit-batch]");
@@ -1551,7 +2111,8 @@ function bindEvents() {
   // Backdrop sengaja tidak menutup modal. Pengguna hanya menutup lewat tombol Batal, ikon X, atau Escape.
   $("#plotModalBackdrop").addEventListener("click", () => {});
   $("#scheduleModalBackdrop").addEventListener("click", () => {});
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); } });
+  $("#legacyImportModalBackdrop").addEventListener("click", () => {});
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); closeLegacyImportModal(); } });
 }
 
 function watchOperationalDate() {
