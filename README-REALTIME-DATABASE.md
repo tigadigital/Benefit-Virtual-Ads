@@ -1,92 +1,64 @@
-# VA Benefit Ploting v0.27 - Firebase Realtime Database
+# VA Benefit Ploting v0.28 - Firebase Realtime Database
 
-Versi ini memakai **Firebase Realtime Database**, bukan Cloud Firestore. Data Master Data dan seluruh jadwal ploting disimpan di path berikut:
+Aplikasi memakai **Firebase Realtime Database** untuk Master Data dan seluruh jadwal ploting. Semua perubahan akan tersinkron antar perangkat setelah login.
+
+## Path data
 
 ```text
 vaBenefitPloting/shared/masters
 vaBenefitPloting/shared/schedules/{scheduleId}
 ```
 
-Aplikasi mendengarkan perubahan secara realtime dengan Firebase Realtime Database. Saat Rakha, Adhi, atau Rian membuat, mengubah, menggeser, atau menghapus jadwal, browser anggota tim lain akan menerima pembaruan otomatis.
+## Perubahan v0.28
 
-## 1. Database URL sudah diperbaiki
+- Tanggal operasional otomatis memakai tanggal hari ini setiap aplikasi dibuka.
+- Master Ploting memakai filter **Tahun** dan **Bulan** terpisah.
+- Kalender Full memakai filter **Tahun** dan **Bulan** terpisah.
+- Timeline Brand memakai filter **Tahun** dan **Bulan** terpisah.
+- Report PIC memakai filter **Tahun** dan **Kuartal**: Q1, Q2, Q3, atau Q4.
+- Penghapusan Master Data diperbaiki. Item yang tidak dipakai jadwal dapat dihapus dan tidak akan muncul kembali saat sinkronisasi. Item yang sudah dipakai tetap terkunci untuk menjaga histori.
 
-Versi ini sudah menggunakan URL Realtime Database yang tampil di Firebase Console Anda:
+## Database URL
 
 ```js
 databaseURL: "https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app"
 ```
 
-Jangan mengganti URL ini dengan endpoint `firebaseio.com`. Instance Anda berada pada region `asia-southeast1` dan memakai domain `firebasedatabase.app`.
+Jangan mengganti URL ini. Instance Realtime Database berada pada region `asia-southeast1`.
 
-## 2. Aktifkan Firebase Authentication
+## Login tim
 
-1. Buka Firebase Console pada project `benefit-virtual-ads`.
-2. Buka Authentication > Sign-in method.
-3. Aktifkan provider **Email/Password**.
-4. Buka tab Users, lalu buat tiga akun internal:
+Aktifkan provider **Email/Password** pada Firebase Authentication dan buat akun berikut:
 
-| Nama | Email |
+| Nama | Email login |
 |---|---|
 | Rakha | `rakha@benefit-virtual-ads.app` |
 | Adhi | `adhi@benefit-virtual-ads.app` |
 | Rian | `rian@benefit-virtual-ads.app` |
 
-Tentukan password internal untuk setiap akun dari Firebase Console. Password tidak disimpan di source code atau repository.
+Password tidak disimpan pada source code atau repository.
 
-## 3. Publish Realtime Database Rules
+## Publish Rules
 
-1. Buka Realtime Database > Rules.
-2. Salin isi file `database.rules.json`.
+1. Buka **Realtime Database > Rules** pada Firebase Console.
+2. Salin isi `database.rules.json`.
 3. Klik **Publish**.
 
-Rules tersebut membatasi baca dan tulis hanya kepada tiga email tim.
+Rules membatasi akses baca dan tulis hanya untuk tiga akun tim.
 
-Alternatif Firebase CLI:
-
-```bash
-npm install -g firebase-tools
-firebase login
-firebase use benefit-virtual-ads
-firebase deploy --only database
-```
-
-## 4. Authorized domain untuk GitHub Pages
-
-Buka Authentication > Settings > Authorized domains, kemudian pastikan hostname ini terdaftar:
-
-```text
-tigadigital.github.io
-```
-
-Masukkan hostname saja, tanpa `https://` dan tanpa path `/Benefit-Virtual-Ads/`.
-
-## 5. Deploy ke GitHub Pages
+## Deploy GitHub Pages
 
 Upload seluruh isi folder ini ke repository `tigadigital/Benefit-Virtual-Ads`, termasuk folder `assets`.
-
-URL aplikasi:
 
 ```text
 https://tigadigital.github.io/Benefit-Virtual-Ads/
 ```
 
-## 6. Pengujian realtime
+File `index.html` memanggil `app.js?v=28` untuk menghindari cache JavaScript lama. Setelah deploy, lakukan hard refresh dengan `Ctrl + Shift + R`.
 
-1. Buka URL aplikasi di dua browser atau perangkat.
-2. Login menggunakan dua akun tim yang berbeda.
-3. Tambah atau ubah ploting pada perangkat pertama.
-4. Perubahan akan muncul otomatis pada perangkat kedua tanpa refresh.
+## Pengujian realtime
 
-## Catatan
-
-- Data Firestore dari versi sebelumnya tidak dipindahkan otomatis ke Realtime Database.
-- Data di Realtime Database hanya dibuat setelah akun tim berhasil login dan Anda mulai menambah Master Data atau ploting.
-- Jika status sinkronisasi menunjukkan gagal, periksa `databaseURL`, Email/Password Authentication, Realtime Database Rules, dan koneksi internet.
-
-## 7. Jika status tetap “Database tidak merespons”
-
-1. Pastikan GitHub Pages sudah memakai file `app.js` v0.27. File `index.html` sudah menambahkan `?v=27` agar browser mengambil JavaScript baru.
-2. Buka Realtime Database > Rules lalu publish `database.rules.json`.
-3. Pastikan login memakai salah satu email yang ada di Rules.
-4. Buka Developer Tools > Console. Bila muncul `permission_denied`, masalahnya ada pada Rules. Bila muncul error koneksi, periksa Database URL dan jaringan.
+1. Buka aplikasi pada dua browser atau perangkat.
+2. Login memakai dua akun berbeda.
+3. Tambah, ubah, atau hapus jadwal di perangkat pertama.
+4. Perubahan harus tampil otomatis di perangkat kedua tanpa refresh.

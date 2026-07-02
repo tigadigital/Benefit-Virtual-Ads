@@ -1,15 +1,16 @@
 /*
-  VA Benefit Ploting v0.27
+  VA Benefit Ploting v0.28
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
-  - Pengaturan tanggal operasional tetap lokal pada browser masing-masing pengguna.
+  - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
+  - Filter periode memakai Tahun + Bulan, serta Report PIC memakai Tahun + Kuartal.
 */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
-const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v27-settings";
+const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v28-settings";
 const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
 
 // Akun internal. Password sengaja tidak disimpan di kode website.
@@ -53,6 +54,15 @@ const getLocalIsoDate = () => {
 };
 const DEFAULT_OPERATION_DATE = getLocalIsoDate();
 const AIRING_STATUSES = ["Planned", "Siap tayang", "On air", "Sudah tayang", "Tidak tayang", "Dibatalkan"];
+const MONTH_OPTIONS = [
+  ["01", "Januari"], ["02", "Februari"], ["03", "Maret"], ["04", "April"],
+  ["05", "Mei"], ["06", "Juni"], ["07", "Juli"], ["08", "Agustus"],
+  ["09", "September"], ["10", "Oktober"], ["11", "November"], ["12", "Desember"]
+];
+const QUARTER_OPTIONS = [
+  ["Q1", "Q1 · Jan–Mar"], ["Q2", "Q2 · Apr–Jun"],
+  ["Q3", "Q3 · Jul–Sep"], ["Q4", "Q4 · Okt–Des"]
+];
 
 const MASTER_META = {
   advertisers: { label: "PT Advertiser", field: "advertiser", placeholder: "Contoh: PT Unilever Indonesia" },
@@ -86,10 +96,10 @@ const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => 
 let state = loadState();
 let activeView = "dashboard";
 let filters = {
-  plot: { query: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 },
-  full: { month: "", unit: "", brand: "" },
-  brand: { brand: "", month: "", unit: "" },
-  pic: { pic: "", month: "" }
+  plot: { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 },
+  full: { year: "", month: "", unit: "", brand: "" },
+  brand: { brand: "", year: "", month: "", unit: "" },
+  pic: { pic: "", year: "", quarter: "" }
 };
 let toastTimer;
 let unsubscribeMasters = null;
@@ -108,13 +118,17 @@ let remoteMasters = null;
 let remotePlotings = new Map();
 
 function normalizeMasters(rawMasters, plotings) {
-  const masters = clone(defaultMasters);
+  // Gunakan data yang tersimpan sebagai sumber utama. Default dipakai hanya saat
+  // database belum memiliki master sama sekali. Dengan ini item master yang
+  // sudah dihapus tidak muncul kembali setelah render atau sinkronisasi realtime.
+  const masters = {};
   Object.keys(MASTER_META).forEach((key) => {
     const supplied = Array.isArray(rawMasters?.[key]) ? rawMasters[key] : [];
-    masters[key] = unique([...masters[key], ...supplied]);
     const field = MASTER_META[key].field;
-    masters[key] = unique([...masters[key], ...plotings.map((plot) => plot[field])]);
-    masters[key] = sortText(masters[key]);
+    masters[key] = sortText(unique([
+      ...supplied,
+      ...plotings.map((plot) => plot[field])
+    ]));
   });
   return masters;
 }
@@ -133,16 +147,8 @@ function normalizePlotings(plotings) {
 }
 
 function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY));
-    return {
-      plotings: [],
-      masters: normalizeMasters(defaultMasters, []),
-      operationDate: saved?.operationDate || DEFAULT_OPERATION_DATE
-    };
-  } catch (error) {
-    console.warn("Tidak dapat membaca pengaturan lokal.", error);
-  }
+  // Tanggal operasional selalu dibuka pada hari ini. Pengguna tetap dapat
+  // memilih tanggal lain selama sesi berjalan melalui Date Picker.
   return {
     plotings: [],
     masters: normalizeMasters(defaultMasters, []),
@@ -151,11 +157,8 @@ function loadState() {
 }
 
 function saveState() {
-  try {
-    localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify({ operationDate: state.operationDate }));
-  } catch (error) {
-    console.warn("Pengaturan lokal tidak dapat disimpan.", error);
-  }
+  // Tanggal operasional tidak lagi disimpan di browser agar pembukaan berikutnya
+  // otomatis kembali ke tanggal hari ini. Data ploting dan master tetap realtime.
   queueRealtimeDatabaseSync();
 }
 
@@ -173,6 +176,42 @@ function formatMonth(monthKey) {
 }
 
 function monthKey(dateValue) { return String(dateValue || "").slice(0, 7); }
+function yearFromDate(dateValue) { return String(dateValue || "").slice(0, 4); }
+function monthFromDate(dateValue) { return String(dateValue || "").slice(5, 7); }
+function monthKeyFromPeriod(year, month) {
+  if (!/^\d{4}$/.test(String(year || "")) || !/^\d{2}$/.test(String(month || ""))) return "";
+  return `${year}-${month}`;
+}
+function matchesYearMonth(dateValue, year, month) {
+  return (!year || yearFromDate(dateValue) === year) && (!month || monthFromDate(dateValue) === month);
+}
+function quarterFromDate(dateValue) {
+  const month = Number(monthFromDate(dateValue));
+  return month ? `Q${Math.ceil(month / 3)}` : "";
+}
+function matchesQuarter(dateValue, year, quarter) {
+  return (!year || yearFromDate(dateValue) === year) && (!quarter || quarterFromDate(dateValue) === quarter);
+}
+function currentYear() { return yearFromDate(getLocalIsoDate()); }
+function currentMonth() { return monthFromDate(getLocalIsoDate()); }
+function currentQuarter() { return quarterFromDate(getLocalIsoDate()); }
+function formatQuarter(year, quarter) {
+  if (!year && !quarter) return "Semua periode";
+  const label = QUARTER_OPTIONS.find(([value]) => value === quarter)?.[1] || quarter || "Semua kuartal";
+  return [label, year].filter(Boolean).join(" ");
+}
+function availableYears() {
+  return [...new Set([currentYear(), ...state.plotings.map((plot) => yearFromDate(plot.planAiring)).filter(Boolean)])]
+    .sort((a, b) => Number(b) - Number(a));
+}
+function optionPairsMarkup(pairs, placeholder, selectedValue = "") {
+  return `<option value="">${escapeHTML(placeholder)}</option>${pairs.map(([value, label]) => `<option value="${escapeHTML(value)}" ${String(value) === String(selectedValue) ? "selected" : ""}>${escapeHTML(label)}</option>`).join("")}`;
+}
+function setSelectPairs(selector, pairs, placeholder, selectedValue = "") {
+  const element = $(selector);
+  if (!element) return;
+  element.innerHTML = optionPairsMarkup(pairs, placeholder, selectedValue);
+}
 function addDays(dateValue, days) { const date = new Date(`${dateValue}T00:00:00`); date.setDate(date.getDate() + days); return date.toISOString().slice(0, 10); }
 function sortByDate(items) { return [...items].sort((a, b) => a.planAiring.localeCompare(b.planAiring) || a.id.localeCompare(b.id)); }
 function badgeClass(status) {
@@ -375,7 +414,7 @@ async function syncStateToRealtimeDatabase() {
       return;
     }
 
-    updates.schemaVersion = 26;
+    updates.schemaVersion = 28;
     updates.updatedAt = nowIso();
     await update(realtimeRootRef, updates);
 
@@ -544,30 +583,47 @@ function initializeFirebaseRealtime() {
 }
 
 function populateSelects() {
-  const months = sortText(unique(state.plotings.map((plot) => monthKey(plot.planAiring))));
+  const years = availableYears();
+  const yearPairs = years.map((year) => [year, year]);
   const brands = sortText(unique(state.plotings.map((plot) => plot.brand)));
   const pics = sortText(unique(state.plotings.map((plot) => plot.pic)));
+  const defaultYear = currentYear();
+  const defaultMonth = currentMonth();
+  const defaultQuarter = currentQuarter();
+
   if (!filters.brand.brand || !brands.includes(filters.brand.brand)) filters.brand.brand = brands[0] || "";
-  if (!filters.brand.month || !months.includes(filters.brand.month)) filters.brand.month = months[0] || monthKey(state.operationDate);
+  if (!filters.brand.year || !years.includes(filters.brand.year)) filters.brand.year = defaultYear;
+  if (!filters.brand.month) filters.brand.month = defaultMonth;
   if (filters.brand.unit && !state.masters.units.includes(filters.brand.unit)) filters.brand.unit = "";
+
   if (!filters.pic.pic || !pics.includes(filters.pic.pic)) filters.pic.pic = pics[0] || "";
-  if (!filters.pic.month || !months.includes(filters.pic.month)) filters.pic.month = months[0] || monthKey(state.operationDate);
-  if (!filters.full.month || !months.includes(filters.full.month)) {
-    filters.full.month = months.includes(monthKey(state.operationDate)) ? monthKey(state.operationDate) : (months[0] || monthKey(state.operationDate));
-  }
+  if (!filters.pic.year || !years.includes(filters.pic.year)) filters.pic.year = defaultYear;
+  if (!filters.pic.quarter) filters.pic.quarter = defaultQuarter;
+
+  if (!filters.full.year || !years.includes(filters.full.year)) filters.full.year = defaultYear;
+  if (!filters.full.month) filters.full.month = defaultMonth;
   if (filters.full.unit && !state.masters.units.includes(filters.full.unit)) filters.full.unit = "";
   if (filters.full.brand && !brands.includes(filters.full.brand)) filters.full.brand = "";
 
-  setSelectOptions("#plotMonthFilter", months, "Semua bulan", filters.plot.month);
+  if (filters.plot.year && !years.includes(filters.plot.year)) filters.plot.year = "";
+
+  setSelectPairs("#plotYearFilter", yearPairs, "Semua tahun", filters.plot.year);
+  setSelectPairs("#plotMonthFilter", MONTH_OPTIONS, "Semua bulan", filters.plot.month);
   setSelectOptions("#plotUnitFilter", state.masters.units, "Semua unit", filters.plot.unit);
   setSelectOptions("#plotGfxFilter", state.masters.gfx, "Semua materi GFX", filters.plot.gfx);
   setSelectOptions("#plotAiringFilter", AIRING_STATUSES, "Semua status tayang", filters.plot.airing);
+
   setSelectOptions("#brandSelect", brands, "Pilih brand", filters.brand.brand);
-  setSelectOptions("#brandMonthSelect", months, "Pilih bulan", filters.brand.month);
+  setSelectPairs("#brandYearSelect", yearPairs, "Pilih tahun", filters.brand.year);
+  setSelectPairs("#brandMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.brand.month);
   setSelectOptions("#brandUnitSelect", state.masters.units, "Semua unit", filters.brand.unit);
+
   setSelectOptions("#picReportSelect", pics, "Pilih PIC", filters.pic.pic);
-  setSelectOptions("#picReportMonthSelect", months, "Pilih bulan", filters.pic.month);
-  setSelectOptions("#fullTimelineMonthSelect", months, "Pilih bulan", filters.full.month);
+  setSelectPairs("#picReportYearSelect", yearPairs, "Pilih tahun", filters.pic.year);
+  setSelectPairs("#picReportQuarterSelect", QUARTER_OPTIONS, "Pilih kuartal", filters.pic.quarter);
+
+  setSelectPairs("#fullTimelineYearSelect", yearPairs, "Pilih tahun", filters.full.year);
+  setSelectPairs("#fullTimelineMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.full.month);
   setSelectOptions("#fullTimelineUnitSelect", state.masters.units, "Semua unit", filters.full.unit);
   setSelectOptions("#fullTimelineBrandSelect", brands, "Semua brand", filters.full.brand);
 
@@ -610,7 +666,7 @@ function filteredPlotings() {
   const query = filter.query.trim().toLowerCase();
   return sortByDate(state.plotings.filter((plot) => {
     const haystack = [plot.batchId, plot.advertiser, plot.brand, plot.sales, plot.pic, plot.unit, plot.program, plot.pod, plot.version, plot.format, plot.duration, plot.gfx, plot.batchNote, plot.scheduleNote].join(" ").toLowerCase();
-    return (!query || haystack.includes(query)) && (!filter.month || monthKey(plot.planAiring) === filter.month) && (!filter.unit || plot.unit === filter.unit) && (!filter.gfx || plot.gfx === filter.gfx) && (!filter.airing || plot.airingStatus === filter.airing);
+    return (!query || haystack.includes(query)) && matchesYearMonth(plot.planAiring, filter.year, filter.month) && (!filter.unit || plot.unit === filter.unit) && (!filter.gfx || plot.gfx === filter.gfx) && (!filter.airing || plot.airingStatus === filter.airing);
   }));
 }
 
@@ -682,7 +738,7 @@ function renderDaily() {
 }
 
 function renderFullTimeline() {
-  const month = filters.full.month;
+  const month = monthKeyFromPeriod(filters.full.year, filters.full.month) || monthKey(state.operationDate);
   const selectedUnit = filters.full.unit;
   const selectedBrand = filters.full.brand;
   const selectedMonthPlots = sortByDate(state.plotings.filter((plot) => monthKey(plot.planAiring) === month));
@@ -765,7 +821,7 @@ function renderFullTimeline() {
 }
 function renderBrand() {
   const brand = filters.brand.brand;
-  const month = filters.brand.month;
+  const month = monthKeyFromPeriod(filters.brand.year, filters.brand.month) || monthKey(state.operationDate);
   const unit = filters.brand.unit;
   const plots = sortByDate(state.plotings.filter((plot) => plot.brand === brand && monthKey(plot.planAiring) === month && (!unit || plot.unit === unit)));
   const titleParts = [brand, formatMonth(month), unit].filter(Boolean);
@@ -815,11 +871,12 @@ function renderCalendar(month, plots) {
 
 function renderPicReport() {
   const selectedPic = filters.pic.pic;
-  const selectedMonth = filters.pic.month;
-  const monthPlots = sortByDate(state.plotings.filter((plot) => !selectedMonth || monthKey(plot.planAiring) === selectedMonth));
-  const selectedPlots = monthPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
+  const selectedYear = filters.pic.year;
+  const selectedQuarter = filters.pic.quarter;
+  const periodPlots = sortByDate(state.plotings.filter((plot) => matchesQuarter(plot.planAiring, selectedYear, selectedQuarter)));
+  const selectedPlots = periodPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
   const selectedLabel = selectedPic || "Semua PIC";
-  const monthLabel = selectedMonth ? formatMonth(selectedMonth) : "Semua periode";
+  const periodLabel = formatQuarter(selectedYear, selectedQuarter);
 
   const metrics = [
     ["Batch benefit", uniqueBatchCount(selectedPlots), "Benefit unik"],
@@ -830,10 +887,10 @@ function renderPicReport() {
   ];
   $("#picReportKpis").innerHTML = metrics.map(([label, value, note]) => `<article class="mini-kpi"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
 
-  const picNames = sortText(unique(monthPlots.map((plot) => plot.pic)));
-  $("#picOverviewCaption").textContent = monthLabel;
+  const picNames = sortText(unique(periodPlots.map((plot) => plot.pic)));
+  $("#picOverviewCaption").textContent = periodLabel;
   $("#picOverviewBody").innerHTML = picNames.length ? picNames.map((pic) => {
-    const plots = monthPlots.filter((plot) => plot.pic === pic);
+    const plots = periodPlots.filter((plot) => plot.pic === pic);
     return `<tr class="${pic === selectedPic ? "selected-pic-row" : ""}">
       <td><span class="pic-chip">${escapeHTML(pic)}</span></td>
       <td>${uniqueBatchCount(plots)}</td>
@@ -845,16 +902,16 @@ function renderPicReport() {
     </tr>`;
   }).join("") : `<tr><td colspan="7" class="empty-row">Belum ada ploting pada periode ini.</td></tr>`;
 
-  $("#picScopeTitle").textContent = `${selectedLabel} · ${monthLabel}`;
+  $("#picScopeTitle").textContent = `${selectedLabel} · ${periodLabel}`;
   const scopeGroups = [
     { label: "Brand yang ditangani", values: unique(selectedPlots.map((plot) => plot.brand)) },
     { label: "Program yang ditangani", values: unique(selectedPlots.map((plot) => plot.program)) },
     { label: "Unit On Air", values: unique(selectedPlots.map((plot) => plot.unit)) }
   ];
-  $("#picScopeList").innerHTML = selectedPlots.length ? scopeGroups.map((group) => `<div class="pic-scope-group"><strong>${escapeHTML(group.label)}</strong><div>${group.values.map((value) => `<span>${escapeHTML(value)}</span>`).join("")}</div></div>`).join("") : `<div class="empty-row">Belum ada data untuk PIC dan bulan yang dipilih.</div>`;
+  $("#picScopeList").innerHTML = selectedPlots.length ? scopeGroups.map((group) => `<div class="pic-scope-group"><strong>${escapeHTML(group.label)}</strong><div>${group.values.map((value) => `<span>${escapeHTML(value)}</span>`).join("")}</div></div>`).join("") : `<div class="empty-row">Belum ada data untuk PIC dan kuartal yang dipilih.</div>`;
 
   $("#picDetailTitle").textContent = `Jadwal ${selectedLabel}`;
-  $("#picDetailCaption").textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot · ${monthLabel}`;
+  $("#picDetailCaption").textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot · ${periodLabel}`;
   $("#picDetailBody").innerHTML = selectedPlots.length ? selectedPlots.map((plot) => `<tr>
     <td>${formatDate(plot.planAiring)}</td>
     <td><span class="cell-title">${escapeHTML(plot.batchId)}</span><span class="cell-subtitle">${escapeHTML(plot.pic)}</span></td>
@@ -1253,10 +1310,16 @@ function addMasterValue(event) {
 
 function deleteMasterValue(key, encodedValue) {
   const meta = MASTER_META[key];
-  const value = decodeURIComponent(encodedValue || "");
-  if (!meta || !value) return;
+  let value = "";
+  try {
+    value = decodeURIComponent(encodedValue || "");
+  } catch (error) {
+    value = String(encodedValue || "");
+  }
+  if (!meta || !value || !Array.isArray(state.masters[key])) return;
   const used = state.plotings.some((plot) => plot[meta.field] === value);
   if (used) { showToast("Data ini sudah digunakan pada ploting sehingga tidak dapat dihapus."); return; }
+  if (!window.confirm(`Hapus ${meta.label}: ${value}?`)) return;
   state.masters[key] = state.masters[key].filter((item) => item !== value);
   saveState();
   renderAll();
@@ -1343,7 +1406,8 @@ function exportPlotingsExcel() {
   const plots = filteredPlotings();
   if (!plots.length) { showToast("Tidak ada data Master Ploting untuk diexport."); return; }
   const headers = ["No", "Tanggal Tayang", "Batch ID", "PT Advertiser", "Brand", "Nama Sales", "PIC Ploting", "Unit On Air", "Program", "POD", "Versi VA", "Format VA", "Durasi", "Materi GFX", "Spot", "Status Tayang", "Segmentasi", "Catatan Benefit", "Note Tambahan", "Dibuat", "Diubah"];
-  const scope = [filters.plot.month ? formatMonth(filters.plot.month) : "semua-periode", filters.plot.unit || "semua-unit"].join("-");
+  const plotPeriod = filters.plot.year || filters.plot.month ? [filters.plot.year || "semua-tahun", filters.plot.month ? (MONTH_OPTIONS.find(([value]) => value === filters.plot.month)?.[1] || filters.plot.month) : "semua-bulan"].join("-") : "semua-periode";
+  const scope = [plotPeriod, filters.plot.unit || "semua-unit"].join("-");
   exportExcelWorkbook(`master-ploting-va-${scope}-${state.operationDate}`, [{
     name: "Master Ploting",
     headers,
@@ -1356,23 +1420,25 @@ function exportPlotingsExcel() {
 
 function getPicExportData() {
   const selectedPic = filters.pic.pic;
-  const selectedMonth = filters.pic.month;
-  const monthPlots = sortByDate(state.plotings.filter((plot) => !selectedMonth || monthKey(plot.planAiring) === selectedMonth));
-  const selectedPlots = monthPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
-  const picNames = sortText(unique(monthPlots.map((plot) => plot.pic)));
+  const selectedYear = filters.pic.year;
+  const selectedQuarter = filters.pic.quarter;
+  const periodPlots = sortByDate(state.plotings.filter((plot) => matchesQuarter(plot.planAiring, selectedYear, selectedQuarter)));
+  const selectedPlots = periodPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
+  const picNames = sortText(unique(periodPlots.map((plot) => plot.pic)));
   const summaryRows = picNames.map((pic, index) => {
-    const plots = monthPlots.filter((plot) => plot.pic === pic);
+    const plots = periodPlots.filter((plot) => plot.pic === pic);
     return [index + 1, pic, uniqueBatchCount(plots), plots.length, sum(plots.map((plot) => plot.spot)), unique(plots.map((plot) => plot.brand)).join(", "), unique(plots.map((plot) => plot.program)).join(", "), unique(plots.map((plot) => plot.unit)).join(", ")];
   });
-  return { selectedPic, selectedMonth, monthPlots, selectedPlots, summaryRows };
+  return { selectedPic, selectedYear, selectedQuarter, periodPlots, selectedPlots, summaryRows };
 }
 
 function exportPicExcel() {
-  const { selectedPic, selectedMonth, selectedPlots, summaryRows } = getPicExportData();
+  const { selectedPic, selectedYear, selectedQuarter, selectedPlots, summaryRows } = getPicExportData();
   if (!selectedPlots.length && !summaryRows.length) { showToast("Tidak ada data Report PIC untuk diexport."); return; }
-  const period = selectedMonth ? formatMonth(selectedMonth) : "semua-periode";
+  const period = formatQuarter(selectedYear, selectedQuarter);
+  const periodFile = [selectedYear || "semua-tahun", selectedQuarter || "semua-kuartal"].join("-");
   const detailRows = masterPlotingExportRows(selectedPlots).map((row) => [row[0], row[1], row[2], row[6], row[3], row[4], row[7], row[8], row[9], row[11], row[12], row[14], row[15], row[16], row[18]]);
-  exportExcelWorkbook(`report-pic-${selectedPic || "semua-pic"}-${period}-${state.operationDate}`, [
+  exportExcelWorkbook(`report-pic-${selectedPic || "semua-pic"}-${periodFile}-${state.operationDate}`, [
     {
       name: "Ringkasan PIC",
       headers: ["No", "PIC Ploting", "Batch", "Jadwal", "Total Spot", "Brand Ditangani", "Program Ditangani", "Unit On Air"],
@@ -1413,24 +1479,28 @@ function bindEvents() {
   $("#operationDate").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#dailyDateInput").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#plotSearchInput").addEventListener("input", (event) => { filters.plot.query = event.target.value; filters.plot.page = 1; renderPlotings(); });
+  $("#plotYearFilter").addEventListener("change", (event) => { filters.plot.year = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#plotMonthFilter").addEventListener("change", (event) => { filters.plot.month = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#plotUnitFilter").addEventListener("change", (event) => { filters.plot.unit = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#plotGfxFilter").addEventListener("change", (event) => { filters.plot.gfx = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#plotAiringFilter").addEventListener("change", (event) => { filters.plot.airing = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#resetPlotFilterButton").addEventListener("click", () => {
-    filters.plot = { query: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 };
+    filters.plot = { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 };
     $("#plotSearchInput").value = "";
     populateSelects();
     renderPlotings();
   });
+  $("#fullTimelineYearSelect").addEventListener("change", (event) => { filters.full.year = event.target.value; renderFullTimeline(); });
   $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
   $("#fullTimelineBrandSelect").addEventListener("change", (event) => { filters.full.brand = event.target.value; renderFullTimeline(); });
   $("#brandSelect").addEventListener("change", (event) => { filters.brand.brand = event.target.value; renderBrand(); });
+  $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; renderBrand(); });
   $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; renderBrand(); });
   $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; renderBrand(); });
   $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; renderPicReport(); });
-  $("#picReportMonthSelect").addEventListener("change", (event) => { filters.pic.month = event.target.value; renderPicReport(); });
+  $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; renderPicReport(); });
+  $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; renderPicReport(); });
   $("#masterTypeInput").addEventListener("change", (event) => { $("#masterValueInput").placeholder = MASTER_META[event.target.value].placeholder; });
 
   document.addEventListener("click", (event) => {
@@ -1484,6 +1554,21 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); } });
 }
 
+function watchOperationalDate() {
+  let observedDate = getLocalIsoDate();
+  window.setInterval(() => {
+    const today = getLocalIsoDate();
+    if (today !== observedDate) {
+      observedDate = today;
+      state.operationDate = today;
+      renderAll();
+      showToast("Tanggal operasional diperbarui ke hari ini.");
+    }
+  }, 60_000);
+}
+
+try { localStorage.removeItem(LOCAL_SETTINGS_KEY); } catch (error) { /* Pengaturan lama boleh diabaikan. */ }
 bindEvents();
 renderAll();
+watchOperationalDate();
 initializeFirebaseRealtime();

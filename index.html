@@ -133,6 +133,7 @@
         </div>
         <div class="toolbar panel toolbar-plotings">
           <div class="search-box"><span>⌕</span><input id="plotSearchInput" type="search" placeholder="Cari brand, PT, program, versi VA, atau sales..." /></div>
+          <select id="plotYearFilter" aria-label="Filter tahun penayangan"></select>
           <select id="plotMonthFilter" aria-label="Filter bulan penayangan"></select>
           <select id="plotUnitFilter" aria-label="Filter unit on air"></select>
           <select id="plotGfxFilter" aria-label="Filter materi GFX"></select>
@@ -175,6 +176,7 @@
             <p>Lihat Unit On Air, brand, program, dan spot dalam satu kalender bulanan.</p>
           </div>
           <div class="brand-filter-controls full-timeline-controls">
+            <label>Tahun<select id="fullTimelineYearSelect"></select></label>
             <label>Bulan<select id="fullTimelineMonthSelect"></select></label>
             <label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
             <label>Brand<select id="fullTimelineBrandSelect"></select></label>
@@ -215,6 +217,7 @@
           <div><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Pilih brand, bulan, dan Unit On Air.</p></div>
           <div class="brand-filter-controls">
             <label>Brand<select id="brandSelect"></select></label>
+            <label>Tahun<select id="brandYearSelect"></select></label>
             <label>Bulan<select id="brandMonthSelect"></select></label>
             <label>Unit On Air<select id="brandUnitSelect"></select></label>
           </div>
@@ -240,7 +243,8 @@
           <div class="report-header-actions">
             <div class="brand-filter-controls">
               <label>PIC Ploting<select id="picReportSelect"></select></label>
-              <label>Bulan<select id="picReportMonthSelect"></select></label>
+              <label>Tahun<select id="picReportYearSelect"></select></label>
+              <label>Kuartal<select id="picReportQuarterSelect"></select></label>
             </div>
             <button class="secondary-button" id="exportPicExcelButton" type="button">⇩ Export Excel</button>
           </div>
@@ -408,6 +412,6 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=27"></script>
+  <script type="module" src="app.js?v=28"></script>
 </body>
 </html>
