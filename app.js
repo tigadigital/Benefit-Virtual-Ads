@@ -67,6 +67,9 @@ const QUARTER_OPTIONS = [
   ["Q3", "Q3 · Jul–Sep"], ["Q4", "Q4 · Okt–Des"]
 ];
 
+// Generator pesan WhatsApp dibatasi sampai lima segment manual per program.
+const WA_SEGMENT_OPTIONS = [1, 2, 3, 4, 5];
+
 const MASTER_META = {
   advertisers: { label: "PT Advertiser", field: "advertiser", placeholder: "Contoh: PT Unilever Indonesia" },
   pods: { label: "POD", field: "pod", placeholder: "Contoh: POD 8" },
@@ -123,6 +126,9 @@ let firebaseInitialHydrationComplete = false;
 let legacyImportSession = null;
 let sheetJsLoadingPromise = null;
 let legacyImportInProgress = false;
+
+// Pengaturan generator WA hanya berlaku selama sesi dan tidak mengubah data ploting utama.
+let waGeneratorState = { selectedProgramKey: "", assignments: {} };
 
 // Data Juli 2026 sudah lebih dulu diinput langsung ke aplikasi.
 // Import data lama hanya mengambil periode Januari sampai Juni 2026.
@@ -819,6 +825,252 @@ function renderDaily() {
   }).join("");
 }
 
+
+function waEligiblePlot(plot) {
+  const inactiveStatus = ["Tidak tayang", "Dibatalkan"];
+  return plot.planAiring === state.operationDate && Number(plot.spot) > 0 && !inactiveStatus.includes(plot.airingStatus);
+}
+
+function getWaProgramGroups() {
+  const grouped = new Map();
+  sortByDate(state.plotings.filter(waEligiblePlot)).forEach((plot) => {
+    const program = String(plot.program || "Tanpa program").trim() || "Tanpa program";
+    const unit = String(plot.unit || "Tanpa unit").trim() || "Tanpa unit";
+    const key = `${state.operationDate}::${unit}::${program}`;
+    if (!grouped.has(key)) grouped.set(key, { key, program, unit, plots: [] });
+    grouped.get(key).plots.push(plot);
+  });
+  return [...grouped.values()].sort((first, second) =>
+    first.unit.localeCompare(second.unit, "id") || first.program.localeCompare(second.program, "id")
+  );
+}
+
+function getWaSpotItems(group) {
+  if (!group) return [];
+  return sortByDate(group.plots).flatMap((plot) => {
+    const amount = Math.max(0, Math.floor(Number(plot.spot) || 0));
+    return Array.from({ length: amount }, (_, index) => ({
+      key: `${group.key}::${plot.id}::${index + 1}`,
+      plot,
+      spotIndex: index + 1,
+      spotTotal: amount
+    }));
+  });
+}
+
+function formatWaDate(dateValue) {
+  if (!dateValue) return "-";
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(dateValue).toUpperCase();
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }).format(date).toLocaleUpperCase("id-ID");
+}
+
+function formatWaFormat(format) {
+  const value = String(format || "").trim();
+  const normalized = value.toUpperCase();
+  if (normalized === "FS" || normalized.includes("FREEZE SCENE")) return "FS";
+  return value.replace(/^VA\s+/i, "").trim() || "VA";
+}
+
+function formatWaDuration(duration) {
+  return String(duration || "").trim()
+    .replace(/\s*detik\b/gi, "\"")
+    .replace(/\s+\"/g, "\"") || "-";
+}
+
+function waSegmentNote(format) {
+  const normalized = String(format || "").toUpperCase();
+  if (/\b2D\b/.test(normalized)) return "(Naik di adegan positif, Tambah audio scene)";
+  if (/\b3D\b/.test(normalized) || /\bFS\b/.test(normalized) || normalized.includes("FREEZE SCENE")) {
+    return "(Naik di adegan positif, Ada audio gfx)";
+  }
+  return "";
+}
+
+function waSpotLine(plot, spot = 1) {
+  return `• ${spot} Spot ${formatWaFormat(plot.format)} ${String(plot.brand || "-").trim()} Durasi ${formatWaDuration(plot.duration)}`
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function getWaSummaryItems(group) {
+  const summary = new Map();
+  sortByDate(group?.plots || []).forEach((plot) => {
+    const key = [plot.brand, plot.format, plot.duration].map((value) => String(value || "").trim()).join("::");
+    if (!summary.has(key)) summary.set(key, { plot, spot: 0 });
+    summary.get(key).spot += Number(plot.spot) || 0;
+  });
+  return [...summary.values()];
+}
+
+function getSelectedWaGroup() {
+  return getWaProgramGroups().find((group) => group.key === waGeneratorState.selectedProgramKey) || null;
+}
+
+function waAssignmentsComplete(items) {
+  return Boolean(items.length) && items.every((item) => WA_SEGMENT_OPTIONS.includes(Number(waGeneratorState.assignments[item.key])));
+}
+
+function buildWaMessage(group) {
+  const items = getWaSpotItems(group);
+  if (!group || !waAssignmentsComplete(items)) return "";
+
+  const summaryLines = getWaSummaryItems(group).map(({ plot, spot }) => waSpotLine(plot, spot));
+  const segmentBlocks = WA_SEGMENT_OPTIONS.map((segment) => {
+    const segmentItems = items.filter((item) => Number(waGeneratorState.assignments[item.key]) === segment);
+    if (!segmentItems.length) return "";
+    const details = segmentItems.map((item) => {
+      const note = waSegmentNote(item.plot.format);
+      return [waSpotLine(item.plot), note, "TC :"].filter(Boolean).join("\n");
+    }).join("\n\n");
+    return `│ SEGMENT ${segment}\n\n${details}`;
+  }).filter(Boolean);
+
+  return [
+    "PLAN & KOMPOSISI VIRTUAL ADS :",
+    "",
+    `*${group.program.toLocaleUpperCase("id-ID")}*`,
+    formatWaDate(state.operationDate),
+    "====================",
+    "",
+    ...summaryLines,
+    "",
+    `*Total : ${items.length} Spot*`,
+    "",
+    "====================",
+    "",
+    segmentBlocks.join("\n\n"),
+    "",
+    "====================",
+    "",
+    "Note :",
+    "",
+    "• FS background still scene blur 80%",
+    "• Mohon dibantu video preview dan timecode setelah dipasang.",
+    "",
+    "Terima kasih 🙏"
+  ].join("\n");
+}
+
+function renderWaGenerator() {
+  const groups = getWaProgramGroups();
+  if (!groups.some((group) => group.key === waGeneratorState.selectedProgramKey)) {
+    waGeneratorState.selectedProgramKey = groups[0]?.key || "";
+  }
+  const group = getSelectedWaGroup();
+  const items = getWaSpotItems(group);
+
+  const programList = $("#waProgramList");
+  const assignmentList = $("#waSpotAssignmentList");
+  const dateLabel = $("#waGeneratorDateLabel");
+  if (dateLabel) dateLabel.textContent = formatWaDate(state.operationDate);
+  const preview = $("#waMessagePreview");
+  const hint = $("#waAssignmentHint");
+  const selectedTitle = $("#waSelectedProgramTitle");
+  const selectedMeta = $("#waSelectedProgramMeta");
+  const copyButton = $("#waCopyButton");
+  const openButton = $("#waOpenButton");
+  const resetButton = $("#waResetSegmentsButton");
+
+  if (!groups.length) {
+    programList.innerHTML = `<div class="wa-empty-list">Tidak ada jadwal aktif dengan spot pada tanggal operasional.</div>`;
+    assignmentList.innerHTML = "";
+    preview.textContent = "Belum ada program yang dapat dibuatkan pesan WhatsApp.";
+    hint.textContent = "Tambahkan jadwal aktif pada tanggal operasional untuk menggunakan generator ini.";
+    selectedTitle.textContent = "Pilih program";
+    selectedMeta.textContent = formatDate(state.operationDate);
+    copyButton.disabled = true;
+    openButton.disabled = true;
+    resetButton.disabled = true;
+    return;
+  }
+
+  programList.innerHTML = groups.map((entry) => {
+    const selected = entry.key === group.key;
+    const spots = sum(entry.plots.map((plot) => plot.spot));
+    return `<button class="wa-program-button ${selected ? "is-selected" : ""}" data-wa-program="${encodeURIComponent(entry.key)}" type="button" aria-pressed="${selected}">
+      <strong>${escapeHTML(entry.program)}</strong>
+      <span>${escapeHTML(entry.unit)} · ${spots} spot · ${entry.plots.length} jadwal</span>
+    </button>`;
+  }).join("");
+
+  const complete = waAssignmentsComplete(items);
+  const assignedCount = items.filter((item) => WA_SEGMENT_OPTIONS.includes(Number(waGeneratorState.assignments[item.key]))).length;
+  selectedTitle.textContent = group.program;
+  selectedMeta.textContent = `${group.unit} · ${formatWaDate(state.operationDate)} · ${items.length} spot`;
+  hint.textContent = complete
+    ? `Semua ${items.length} spot sudah ditempatkan pada segment.`
+    : `${assignedCount} dari ${items.length} spot sudah ditempatkan. Pilih Segment 1 sampai Segment 5 untuk setiap spot.`;
+
+  assignmentList.innerHTML = items.map((item) => {
+    const selectedSegment = Number(waGeneratorState.assignments[item.key]) || "";
+    const options = [`<option value="">Pilih segment</option>`, ...WA_SEGMENT_OPTIONS.map((segment) => `<option value="${segment}" ${selectedSegment === segment ? "selected" : ""}>Segment ${segment}</option>`)].join("");
+    return `<article class="wa-assignment-item">
+      <div class="wa-assignment-detail">
+        <strong>${escapeHTML(item.plot.brand)}</strong>
+        <span>${escapeHTML(formatWaFormat(item.plot.format))} · Durasi ${escapeHTML(formatWaDuration(item.plot.duration))} · Spot ${item.spotIndex} dari ${item.spotTotal}</span>
+      </div>
+      <label>Segment<select class="wa-segment-select" data-wa-spot-key="${encodeURIComponent(item.key)}" aria-label="Pilih segment untuk ${escapeHTML(item.plot.brand)} spot ${item.spotIndex}">${options}</select></label>
+    </article>`;
+  }).join("");
+
+  preview.textContent = complete
+    ? buildWaMessage(group)
+    : "Pilih segment untuk seluruh spot terlebih dahulu. Preview pesan WhatsApp akan muncul setelah semua spot sudah ditempatkan.";
+  copyButton.disabled = !complete;
+  openButton.disabled = !complete;
+  resetButton.disabled = !assignedCount;
+}
+
+async function copyWaMessage() {
+  const group = getSelectedWaGroup();
+  const message = buildWaMessage(group);
+  if (!message) {
+    showToast("Pilih segment untuk seluruh spot sebelum menyalin pesan.");
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(message);
+    } else {
+      const field = document.createElement("textarea");
+      field.value = message;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      document.execCommand("copy");
+      field.remove();
+    }
+    showToast("Teks WhatsApp sudah disalin.");
+  } catch (error) {
+    console.error("Gagal menyalin teks WhatsApp.", error);
+    showToast("Teks belum dapat disalin. Coba salin langsung dari preview.");
+  }
+}
+
+function openWaMessage() {
+  const group = getSelectedWaGroup();
+  const message = buildWaMessage(group);
+  if (!message) {
+    showToast("Pilih segment untuk seluruh spot sebelum membuka WhatsApp.");
+    return;
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener");
+}
+
+function resetWaSegments() {
+  const group = getSelectedWaGroup();
+  getWaSpotItems(group).forEach((item) => delete waGeneratorState.assignments[item.key]);
+  renderWaGenerator();
+}
+
 function renderFullTimeline() {
   const month = monthKeyFromPeriod(filters.full.year, filters.full.month) || monthKey(state.operationDate);
   const selectedUnit = filters.full.unit;
@@ -1017,6 +1269,7 @@ function renderActiveView() {
     dashboard: renderDashboard,
     plotings: renderPlotings,
     daily: renderDaily,
+    wagenerator: renderWaGenerator,
     fulltimeline: renderFullTimeline,
     brand: renderBrand,
     picreport: renderPicReport,
@@ -1039,6 +1292,7 @@ function updatePageTitle() {
     dashboard: ["OPERATIONS DASHBOARD", "VA Benefit Ploting"],
     plotings: ["2026 VA DIGITAL", "Master Ploting VA"],
     daily: ["PIVOT MASTER", "Timeline Harian"],
+    wagenerator: ["SHARE OPERASIONAL", "Generator Pesan WhatsApp"],
     fulltimeline: ["TIMELINE BULANAN", "Kalender Full"],
     brand: ["TIMELINE BRAND", "Timeline Brand"],
     picreport: ["MONITORING PIC", "Report per PIC"],
@@ -2033,6 +2287,19 @@ function bindEvents() {
   $$(".auth-account-button").forEach((button) => button.addEventListener("click", () => selectTeamAccount(button.dataset.teamAccount, true)));
   $("#authPasswordInput").addEventListener("input", updateAuthForm);
   $("#signOutButton").addEventListener("click", signOutFromFirebase);
+  $("#waCopyButton").addEventListener("click", copyWaMessage);
+  $("#waOpenButton").addEventListener("click", openWaMessage);
+  $("#waResetSegmentsButton").addEventListener("click", resetWaSegments);
+
+  document.addEventListener("change", (event) => {
+    const segmentSelect = event.target.closest("[data-wa-spot-key]");
+    if (!segmentSelect) return;
+    const key = decodeURIComponent(segmentSelect.dataset.waSpotKey || "");
+    const segment = Number(segmentSelect.value);
+    if (WA_SEGMENT_OPTIONS.includes(segment)) waGeneratorState.assignments[key] = segment;
+    else delete waGeneratorState.assignments[key];
+    renderWaGenerator();
+  });
 
   $("#operationDate").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#dailyDateInput").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
@@ -2074,6 +2341,12 @@ function bindEvents() {
     if (editBatch) { openPlotModal(editBatch.dataset.editBatch); return; }
     const goView = event.target.closest("[data-go-view]");
     if (goView) { setView(goView.dataset.goView); return; }
+    const waProgram = event.target.closest("[data-wa-program]");
+    if (waProgram) {
+      waGeneratorState.selectedProgramKey = decodeURIComponent(waProgram.dataset.waProgram || "");
+      renderWaGenerator();
+      return;
+    }
     const plotPage = event.target.closest("[data-plot-page]");
     if (plotPage && !plotPage.disabled) {
       const nextPage = Number(plotPage.dataset.plotPage);

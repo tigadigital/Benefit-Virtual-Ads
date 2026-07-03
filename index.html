@@ -11,8 +11,8 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=31" />
-  <link rel="stylesheet" href="style.css?v=30" />
+  <link rel="modulepreload" href="app.js?v=33" />
+  <link rel="stylesheet" href="style.css?v=31" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -65,6 +65,7 @@
         <button class="nav-item active" data-view="dashboard" type="button"><span>⌂</span><em>Dashboard</em></button>
         <button class="nav-item" data-view="plotings" type="button"><span>▤</span><em>Master Ploting VA</em></button>
         <button class="nav-item" data-view="daily" type="button"><span>◷</span><em>Timeline Harian</em></button>
+        <button class="nav-item" data-view="wagenerator" type="button"><span>◉</span><em>Generator WhatsApp</em></button>
         <button class="nav-item" data-view="fulltimeline" type="button"><span>▥</span><em>Kalender Full</em></button>
         <button class="nav-item" data-view="brand" type="button"><span>▦</span><em>Timeline Brand</em></button>
         <button class="nav-item" data-view="picreport" type="button"><span>◫</span><em>Report PIC</em></button>
@@ -174,6 +175,53 @@
           <div class="panel-heading"><div><p class="section-label">PIVOT 7 HARI</p><h3>Penayangan berikutnya</h3></div></div>
           <div class="seven-day-list" id="sevenDayList"></div>
         </article>
+      </section>
+
+      <section class="view" data-view-panel="wagenerator" id="waGeneratorView">
+        <div class="section-intro panel wa-generator-header">
+          <div>
+            <p class="section-label">SHARE OPERASIONAL</p>
+            <h3>Generator Pesan WhatsApp</h3>
+            <p>Pilih program pada tanggal operasional, lalu tempatkan setiap spot secara manual ke Segment 1 sampai Segment 5.</p>
+          </div>
+          <div class="wa-generator-date"><span>TANGGAL PESAN</span><strong id="waGeneratorDateLabel">Mengikuti tanggal operasional</strong></div>
+        </div>
+
+        <div class="wa-generator-layout">
+          <aside class="panel wa-program-panel">
+            <div class="wa-panel-head">
+              <p class="section-label">PROGRAM HARI INI</p>
+              <h3>Pilih program</h3>
+            </div>
+            <div class="wa-program-list" id="waProgramList"></div>
+          </aside>
+
+          <section class="wa-generator-main">
+            <article class="panel wa-assignment-panel">
+              <div class="wa-panel-head wa-assignment-head">
+                <div>
+                  <p class="section-label">ATUR SEGMENT MANUAL</p>
+                  <h3 id="waSelectedProgramTitle">Pilih program</h3>
+                  <p id="waSelectedProgramMeta" class="wa-selected-program-meta"></p>
+                </div>
+                <button class="secondary-button" id="waResetSegmentsButton" type="button">Reset segment</button>
+              </div>
+              <p class="wa-assignment-hint" id="waAssignmentHint"></p>
+              <div class="wa-assignment-list" id="waSpotAssignmentList"></div>
+            </article>
+
+            <article class="panel wa-preview-panel">
+              <div class="wa-panel-head wa-preview-head">
+                <div><p class="section-label">PREVIEW PESAN</p><h3>Siap dibagikan ke WhatsApp</h3></div>
+                <div class="wa-preview-actions">
+                  <button class="secondary-button" id="waCopyButton" type="button" disabled>Salin teks</button>
+                  <button class="primary-button" id="waOpenButton" type="button" disabled>Buka WhatsApp</button>
+                </div>
+              </div>
+              <pre class="wa-message-preview" id="waMessagePreview" aria-live="polite"></pre>
+            </article>
+          </section>
+        </div>
       </section>
 
       <section class="view" data-view-panel="fulltimeline" id="fullTimelineView">
@@ -457,6 +505,6 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=31"></script>
+  <script type="module" src="app.js?v=33"></script>
 </body>
 </html>
