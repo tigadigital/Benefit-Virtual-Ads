@@ -12,7 +12,7 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=35" />
+  <link rel="modulepreload" href="app.js?v=37" />
   <link rel="stylesheet" href="style.css?v=33" />
 </head>
 <body>
@@ -271,12 +271,14 @@
 
       <section class="view" data-view-panel="brand" id="brandView">
         <div class="section-intro panel timeline-header">
-          <div><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Pilih brand, bulan, dan Unit On Air.</p></div>
+          <div><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Filter brand, periode, unit, program, dan format VA.</p></div>
           <div class="brand-filter-controls">
             <label>Brand<select id="brandSelect"></select></label>
             <label>Tahun<select id="brandYearSelect"></select></label>
             <label>Bulan<select id="brandMonthSelect"></select></label>
             <label>Unit On Air<select id="brandUnitSelect"></select></label>
+            <label>Program<select id="brandProgramSelect"></select></label>
+            <label>Format VA<select id="brandFormatSelect"></select></label>
           </div>
         </div>
         <div class="brand-stats" id="brandStats"></div>
@@ -509,6 +511,6 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=33"></script>
+  <script type="module" src="app.js?v=37"></script>
 </body>
 </html>

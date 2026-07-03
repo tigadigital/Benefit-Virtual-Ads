@@ -104,7 +104,7 @@ let activeView = "dashboard";
 let filters = {
   plot: { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 },
   full: { year: "", month: "", unit: "", brand: "" },
-  brand: { brand: "", year: "", month: "", unit: "" },
+  brand: { brand: "", year: "", month: "", unit: "", program: "", format: "" },
   pic: { pic: "", year: "", quarter: "" }
 };
 let toastTimer;
@@ -201,11 +201,42 @@ function normalizeMasters(rawMasters, plotings) {
   return masters;
 }
 
+function normalizeWhitespace(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function formatProgramName(value) {
+  return normalizeWhitespace(value).toLocaleUpperCase("id-ID");
+}
+
+function formatBrandToken(token) {
+  const value = String(token || "");
+  if (!value) return "";
+
+  // Pertahankan singkatan umum dan brand berbasis angka, misalnya MNC, KFC, 3M, atau A&W.
+  const upper = value.toLocaleUpperCase("id-ID");
+  const hasLetter = /\p{L}/u.test(value);
+  const isShortAcronym = hasLetter && value === upper && value.length <= 4;
+  const hasDigit = /\d/.test(value);
+  if (isShortAcronym || hasDigit) return value;
+
+  return value.toLocaleLowerCase("id-ID").replace(/(^|[-/'’])(\p{L})/gu, (match, prefix, letter) => `${prefix}${letter.toLocaleUpperCase("id-ID")}`);
+}
+
+function formatBrandName(value) {
+  return normalizeWhitespace(value)
+    .split(" ")
+    .map(formatBrandToken)
+    .join(" ");
+}
+
 function normalizePlotings(plotings) {
   return plotings.map((plot) => {
     const legacyScheduleNote = String(plot.scheduleNote ?? plot.note ?? "").trim();
     return {
       ...plot,
+      brand: formatBrandName(plot.brand),
+      program: formatProgramName(plot.program),
       pic: String(plot.pic || "Belum ditetapkan").trim() || "Belum ditetapkan",
       airingStatus: plot.airingStatus || "Planned",
       batchNote: String(plot.batchNote || "").trim(),
@@ -685,6 +716,17 @@ function populateSelects() {
   if (!filters.brand.month) filters.brand.month = defaultMonth;
   if (filters.brand.unit && !state.masters.units.includes(filters.brand.unit)) filters.brand.unit = "";
 
+  const brandMonth = monthKeyFromPeriod(filters.brand.year, filters.brand.month);
+  const brandScope = state.plotings.filter((plot) => (
+    (!filters.brand.brand || plot.brand === filters.brand.brand) &&
+    (!brandMonth || monthKey(plot.planAiring) === brandMonth) &&
+    (!filters.brand.unit || plot.unit === filters.brand.unit)
+  ));
+  const brandPrograms = sortText(unique(brandScope.map((plot) => plot.program)));
+  const brandFormats = sortText(unique(brandScope.map((plot) => plot.format)));
+  if (filters.brand.program && !brandPrograms.includes(filters.brand.program)) filters.brand.program = "";
+  if (filters.brand.format && !brandFormats.includes(filters.brand.format)) filters.brand.format = "";
+
   if (!filters.pic.pic || !pics.includes(filters.pic.pic)) filters.pic.pic = pics[0] || "";
   if (!filters.pic.year || !years.includes(filters.pic.year)) filters.pic.year = defaultYear;
   if (!filters.pic.quarter) filters.pic.quarter = defaultQuarter;
@@ -706,6 +748,8 @@ function populateSelects() {
   setSelectPairs("#brandYearSelect", yearPairs, "Pilih tahun", filters.brand.year);
   setSelectPairs("#brandMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.brand.month);
   setSelectOptions("#brandUnitSelect", state.masters.units, "Semua unit", filters.brand.unit);
+  setSelectOptions("#brandProgramSelect", brandPrograms, "Semua program", filters.brand.program);
+  setSelectOptions("#brandFormatSelect", brandFormats, "Semua format VA", filters.brand.format);
 
   setSelectOptions("#picReportSelect", pics, "Pilih PIC", filters.pic.pic);
   setSelectPairs("#picReportYearSelect", yearPairs, "Pilih tahun", filters.pic.year);
@@ -1156,8 +1200,16 @@ function renderBrand() {
   const brand = filters.brand.brand;
   const month = monthKeyFromPeriod(filters.brand.year, filters.brand.month) || monthKey(state.operationDate);
   const unit = filters.brand.unit;
-  const plots = sortByDate(state.plotings.filter((plot) => plot.brand === brand && monthKey(plot.planAiring) === month && (!unit || plot.unit === unit)));
-  const titleParts = [brand, formatMonth(month), unit].filter(Boolean);
+  const program = filters.brand.program;
+  const format = filters.brand.format;
+  const plots = sortByDate(state.plotings.filter((plot) => (
+    plot.brand === brand &&
+    monthKey(plot.planAiring) === month &&
+    (!unit || plot.unit === unit) &&
+    (!program || plot.program === program) &&
+    (!format || plot.format === format)
+  )));
+  const titleParts = [brand, formatMonth(month), unit, program, format].filter(Boolean);
   $("#brandCalendarTitle").textContent = brand ? titleParts.join(" · ") : "Pilih brand";
   const stats = [
     ["Jadwal", plots.length, "Tanggal tayang"],
@@ -1407,11 +1459,11 @@ function readScheduleRows() {
 function formPayload() {
   return {
     advertiser: $("#plotAdvertiserInput").value,
-    brand: $("#plotBrandInput").value.trim(),
+    brand: formatBrandName($("#plotBrandInput").value),
     sales: $("#plotSalesInput").value.trim(),
     pic: $("#plotPicInput").value,
     unit: $("#plotUnitInput").value,
-    program: $("#plotProgramInput").value.trim(),
+    program: formatProgramName($("#plotProgramInput").value),
     pod: $("#plotPodInput").value,
     version: $("#plotVersionInput").value.trim(),
     format: $("#plotFormatInput").value,
@@ -1849,6 +1901,71 @@ function loadHtml2Canvas() {
   return html2CanvasLoadingPromise;
 }
 
+function prepareBrandDetailLogosForSnapshot(table) {
+  const logos = [...table.querySelectorAll(".unit-logo")];
+
+  return Promise.all(logos.map((image) => new Promise((resolve) => {
+    const bounds = image.getBoundingClientRect();
+    const width = Math.max(1, Math.round(bounds.width || 40));
+    const height = Math.max(1, Math.round(bounds.height || 17));
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+
+      // html2canvas tidak selalu menerapkan object-fit pada elemen img dengan
+      // konsisten. Logo diraster lebih dulu ke kanvas dengan rasio asli agar
+      // proporsi setiap logo, terutama MNCTV, tetap terjaga pada snapshot.
+      if (!image.naturalWidth || !image.naturalHeight) {
+        resolve({ src: "", width, height });
+        return;
+      }
+
+      try {
+        const density = 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = width * density;
+        canvas.height = height * density;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          resolve({ src: "", width, height });
+          return;
+        }
+
+        const scale = Math.min(
+          canvas.width / image.naturalWidth,
+          canvas.height / image.naturalHeight
+        );
+        const drawWidth = image.naturalWidth * scale;
+        const drawHeight = image.naturalHeight * scale;
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(
+          image,
+          (canvas.width - drawWidth) / 2,
+          (canvas.height - drawHeight) / 2,
+          drawWidth,
+          drawHeight
+        );
+        resolve({ src: canvas.toDataURL("image/png"), width, height });
+      } catch (error) {
+        console.warn("Logo Unit On Air tidak dapat dipersiapkan untuk snapshot.", error);
+        resolve({ src: "", width, height });
+      }
+    };
+
+    if (image.complete) {
+      finish();
+      return;
+    }
+
+    image.addEventListener("load", finish, { once: true });
+    image.addEventListener("error", finish, { once: true });
+    window.setTimeout(finish, 1200);
+  })));
+}
+
 async function snapshotBrandDetailTable() {
   const table = $("#brandDetailTable");
   const button = $("#snapshotBrandDetailButton");
@@ -1871,6 +1988,7 @@ async function snapshotBrandDetailTable() {
 
     const captureWidth = Math.ceil(Math.max(table.scrollWidth, table.getBoundingClientRect().width));
     const captureHeight = Math.ceil(Math.max(table.scrollHeight, table.getBoundingClientRect().height));
+    const snapshotLogos = await prepareBrandDetailLogosForSnapshot(table);
     const canvas = await html2canvas(table, {
       backgroundColor: "#ffffff",
       scale: 2,
@@ -1899,6 +2017,17 @@ async function snapshotBrandDetailTable() {
         clonedTable.style.width = `${captureWidth}px`;
         clonedTable.style.minWidth = `${captureWidth}px`;
         clonedTable.querySelectorAll("img").forEach((image) => { image.loading = "eager"; });
+
+        clonedTable.querySelectorAll(".unit-logo").forEach((image, index) => {
+          const logo = snapshotLogos[index];
+          if (!logo) return;
+          if (logo.src) image.src = logo.src;
+          image.style.width = `${logo.width}px`;
+          image.style.height = `${logo.height}px`;
+          image.style.maxWidth = `${logo.width}px`;
+          image.style.objectFit = "fill";
+          image.style.objectPosition = "center";
+        });
       }
     });
 
@@ -2019,8 +2148,8 @@ function buildLegacyImportSession(file, workbook, options) {
     }
 
     const requiredText = {
-      brand: normalizeLegacyText(raw.brand), pod: normalizeLegacyText(raw.pod), sales: normalizeLegacyText(raw.sales),
-      unit: normalizeLegacyText(raw.unit), program: normalizeLegacyText(raw.program), format: normalizeLegacyText(raw.format), planAiring
+      brand: formatBrandName(normalizeLegacyText(raw.brand)), pod: normalizeLegacyText(raw.pod), sales: normalizeLegacyText(raw.sales),
+      unit: normalizeLegacyText(raw.unit), program: formatProgramName(normalizeLegacyText(raw.program)), format: normalizeLegacyText(raw.format), planAiring
     };
     const missing = LEGACY_IMPORT_REQUIRED_FIELDS.filter((field) => !requiredText[field]);
     if (missing.length) {
@@ -2428,10 +2557,12 @@ function bindEvents() {
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
   $("#fullTimelineBrandSelect").addEventListener("change", (event) => { filters.full.brand = event.target.value; renderFullTimeline(); });
   $("#snapshotBrandDetailButton").addEventListener("click", snapshotBrandDetailTable);
-  $("#brandSelect").addEventListener("change", (event) => { filters.brand.brand = event.target.value; renderBrand(); });
-  $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; renderBrand(); });
-  $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; renderBrand(); });
-  $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; renderBrand(); });
+  $("#brandSelect").addEventListener("change", (event) => { filters.brand.brand = event.target.value; populateSelects(); renderBrand(); });
+  $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; populateSelects(); renderBrand(); });
+  $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; populateSelects(); renderBrand(); });
+  $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; populateSelects(); renderBrand(); });
+  $("#brandProgramSelect").addEventListener("change", (event) => { filters.brand.program = event.target.value; renderBrand(); });
+  $("#brandFormatSelect").addEventListener("change", (event) => { filters.brand.format = event.target.value; renderBrand(); });
   $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; renderPicReport(); });
   $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; renderPicReport(); });
   $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; renderPicReport(); });
