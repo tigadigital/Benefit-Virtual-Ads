@@ -125,6 +125,7 @@ let remotePlotings = new Map();
 let firebaseInitialHydrationComplete = false;
 let legacyImportSession = null;
 let sheetJsLoadingPromise = null;
+let html2CanvasLoadingPromise = null;
 let legacyImportInProgress = false;
 
 // Pengaturan generator WA hanya berlaku selama sesi dan tidak mengubah data ploting utama.
@@ -928,25 +929,23 @@ function buildWaMessage(group) {
       const note = waSegmentNote(item.plot.format);
       return [waSpotLine(item.plot), note, "TC :"].filter(Boolean).join("\n");
     }).join("\n\n");
-    return `│ SEGMENT ${segment}\n\n${details}`;
+    return `│ SEGMENT ${segment}\n\n${details}\n====================`;
   }).filter(Boolean);
 
   return [
     "PLAN & KOMPOSISI VIRTUAL ADS :",
     "",
-    `*${group.program.toLocaleUpperCase("id-ID")}*`,
+    group.program.toLocaleUpperCase("id-ID"),
     formatWaDate(state.operationDate),
     "====================",
     "",
     ...summaryLines,
     "",
-    `*Total : ${items.length} Spot*`,
+    `Total : ${items.length} Spot`,
     "",
     "====================",
     "",
     segmentBlocks.join("\n\n"),
-    "",
-    "====================",
     "",
     "Note :",
     "",
@@ -1170,6 +1169,13 @@ function renderBrand() {
   renderCalendar(month, plots);
   const totalSpot = sum(plots.map((plot) => plot.spot));
   $("#brandTotalSpot").textContent = totalSpot;
+  const snapshotButton = $("#snapshotBrandDetailButton");
+  if (snapshotButton) {
+    snapshotButton.disabled = !plots.length;
+    snapshotButton.title = plots.length
+      ? "Simpan seluruh tabel Detail Brand sebagai gambar PNG"
+      : "Pilih brand dan periode dengan jadwal terlebih dahulu";
+  }
   $("#brandDetailBody").innerHTML = plots.length ? plots.map((plot) => `<tr>
     <td>${formatDate(plot.planAiring)}</td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
@@ -1825,6 +1831,108 @@ function closeLegacyImportModal() {
   $("#legacyImportModalBackdrop").setAttribute("aria-hidden", "true");
 }
 
+function loadHtml2Canvas() {
+  if (window.html2canvas) return Promise.resolve(window.html2canvas);
+  if (html2CanvasLoadingPromise) return html2CanvasLoadingPromise;
+
+  html2CanvasLoadingPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+    script.async = true;
+    script.onload = () => window.html2canvas
+      ? resolve(window.html2canvas)
+      : reject(new Error("Library snapshot tidak tersedia setelah dimuat."));
+    script.onerror = () => reject(new Error("Library snapshot tidak dapat dimuat."));
+    document.head.appendChild(script);
+  });
+
+  return html2CanvasLoadingPromise;
+}
+
+async function snapshotBrandDetailTable() {
+  const table = $("#brandDetailTable");
+  const button = $("#snapshotBrandDetailButton");
+  const hasRows = Boolean(table && [...table.querySelectorAll("#brandDetailBody tr")].some((row) => !row.querySelector(".empty-row")));
+
+  if (!table || !hasRows) {
+    showToast("Pilih brand dan periode dengan jadwal terlebih dahulu.");
+    return;
+  }
+
+  const initialLabel = button?.textContent || "▣ Copy Snapshot";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Menyiapkan snapshot...";
+  }
+
+  try {
+    const html2canvas = await loadHtml2Canvas();
+    if (document.fonts?.ready) await document.fonts.ready;
+
+    const captureWidth = Math.ceil(Math.max(table.scrollWidth, table.getBoundingClientRect().width));
+    const captureHeight = Math.ceil(Math.max(table.scrollHeight, table.getBoundingClientRect().height));
+    const canvas = await html2canvas(table, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      width: captureWidth,
+      height: captureHeight,
+      windowWidth: captureWidth,
+      windowHeight: captureHeight,
+      onclone: (clonedDocument) => {
+        const clonedTable = clonedDocument.querySelector("#brandDetailTable");
+        if (!clonedTable) return;
+
+        // Kolom aksi hanya diperlukan saat mengelola jadwal di aplikasi dan tidak
+        // relevan pada gambar yang dibagikan. Semua kolom data tetap dipertahankan.
+        clonedTable.querySelectorAll("thead tr th:last-child, tbody tr td:last-child")
+          .forEach((cell) => cell.remove());
+
+        const footerSpacer = clonedTable.querySelector("tfoot tr td:last-child");
+        if (footerSpacer) footerSpacer.colSpan = Math.max(1, Number(footerSpacer.colSpan || 1) - 1);
+
+        const emptyCell = clonedTable.querySelector(".empty-row");
+        if (emptyCell) emptyCell.colSpan = 7;
+
+        clonedTable.style.width = `${captureWidth}px`;
+        clonedTable.style.minWidth = `${captureWidth}px`;
+        clonedTable.querySelectorAll("img").forEach((image) => { image.loading = "eager"; });
+      }
+    });
+
+    const imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!imageBlob) throw new Error("Gambar PNG tidak berhasil dibuat.");
+
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+      throw new Error("Clipboard gambar tidak didukung oleh browser ini.");
+    }
+
+    if (button) button.textContent = "Menyalin...";
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": imageBlob })
+    ]);
+    showToast("Snapshot Detail Brand sudah disalin. Tempel langsung di WhatsApp.");
+  } catch (error) {
+    console.error("Gagal menyalin snapshot Detail Brand.", error);
+    const copyPermissionDenied = String(error?.name || "") === "NotAllowedError";
+    const unsupportedClipboard = String(error?.message || "").includes("Clipboard gambar tidak didukung");
+    if (copyPermissionDenied) {
+      showToast("Izin clipboard belum tersedia. Izinkan akses clipboard lalu coba lagi.");
+    } else if (unsupportedClipboard) {
+      showToast("Browser ini belum mendukung copy gambar. Gunakan Chrome atau Edge versi terbaru.");
+    } else {
+      showToast("Snapshot belum berhasil disalin. Periksa koneksi lalu coba lagi.");
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = initialLabel;
+    }
+  }
+}
+
 function loadSheetJs() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (sheetJsLoadingPromise) return sheetJsLoadingPromise;
@@ -2319,6 +2427,7 @@ function bindEvents() {
   $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
   $("#fullTimelineBrandSelect").addEventListener("change", (event) => { filters.full.brand = event.target.value; renderFullTimeline(); });
+  $("#snapshotBrandDetailButton").addEventListener("click", snapshotBrandDetailTable);
   $("#brandSelect").addEventListener("change", (event) => { filters.brand.brand = event.target.value; renderBrand(); });
   $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; renderBrand(); });
   $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; renderBrand(); });

@@ -6,13 +6,14 @@
   <meta name="description" content="Sistem ploting benefit Virtual Ad dengan timeline dan master data." />
   <title>VA Benefit Ploting</title>
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
   <link rel="preconnect" href="https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=33" />
-  <link rel="stylesheet" href="style.css?v=31" />
+  <link rel="modulepreload" href="app.js?v=35" />
+  <link rel="stylesheet" href="style.css?v=33" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -287,8 +288,11 @@
           </div>
         </article>
         <article class="panel brand-detail-panel">
-          <div class="panel-heading"><div><p class="section-label">DETAIL BRAND</p><h3>Jadwal pada periode terpilih</h3></div></div>
-          <div class="table-wrap compact-table-wrap"><table class="data-table brand-detail-table"><thead><tr><th>Tanggal</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>GFX</th><th>Status</th><th>Note Tambahan</th><th></th></tr></thead><tbody id="brandDetailBody"></tbody><tfoot><tr class="brand-total-row"><td colspan="3"><strong>Total Spot</strong><span>Akumulasi periode terpilih</span></td><td id="brandTotalSpot">0</td><td colspan="4"></td></tr></tfoot></table></div>
+          <div class="panel-heading brand-detail-heading">
+            <div><p class="section-label">DETAIL BRAND</p><h3>Jadwal pada periode terpilih</h3></div>
+            <button class="secondary-button brand-snapshot-button" id="snapshotBrandDetailButton" type="button" disabled title="Salin seluruh tabel sebagai gambar untuk ditempel ke WhatsApp">▣ Copy Snapshot</button>
+          </div>
+          <div class="table-wrap compact-table-wrap"><table class="data-table brand-detail-table" id="brandDetailTable"><thead><tr><th>Tanggal</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>GFX</th><th>Status</th><th>Note Tambahan</th><th></th></tr></thead><tbody id="brandDetailBody"></tbody><tfoot><tr class="brand-total-row"><td colspan="3"><strong>Total Spot</strong><span>Akumulasi periode terpilih</span></td><td id="brandTotalSpot">0</td><td colspan="4"></td></tr></tfoot></table></div>
         </article>
       </section>
 
