@@ -1,5 +1,5 @@
 /*
-  VA Benefit Ploting v0.31
+  VA Benefit Ploting v0.46
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
@@ -323,6 +323,17 @@ function badgeClass(status) {
   return "pending";
 }
 function badge(status) { return `<span class="badge ${badgeClass(status)}">${escapeHTML(status)}</span>`; }
+
+// Status ini bersifat final. Kalender memakai penanda visual khusus ketika
+// seluruh jadwal dalam satu tanggal sudah berada pada status akhir.
+const FINAL_AIRING_STATUSES = new Set(["Sudah tayang", "Tidak tayang", "Dibatalkan"]);
+function isFinalAiringStatus(status) {
+  return FINAL_AIRING_STATUSES.has(String(status || "").trim());
+}
+function allSchedulesFinal(plots) {
+  return Array.isArray(plots) && plots.length > 0 && plots.every((plot) => isFinalAiringStatus(plot.airingStatus));
+}
+
 function isZeroSpot(spot) { return Number(spot) === 0; }
 function spotMarkup(spot, extraClass = "") {
   const classes = ["spot-value", isZeroSpot(spot) ? "spot-zero" : "", extraClass].filter(Boolean).join(" ");
@@ -362,10 +373,83 @@ function optionMarkup(values, placeholder, selectedValue = "") {
   const all = unique([selectedValue, ...values]);
   return `<option value="">${escapeHTML(placeholder)}</option>${all.map((value) => `<option value="${escapeHTML(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHTML(value)}</option>`).join("")}`;
 }
+function datalistMarkup(values, selectedValue = "") {
+  return unique([selectedValue, ...values]).filter(Boolean)
+    .map((value) => `<option value="${escapeHTML(value)}"></option>`)
+    .join("");
+}
 function setSelectOptions(selector, values, placeholder, selectedValue = "") {
   const element = $(selector);
   if (!element) return;
+
+  // Filter brand pada Timeline Brand dan Kalender Full memakai input + datalist
+  // supaya daftar brand yang panjang tetap bisa dicari dengan mengetik.
+  if (element instanceof HTMLInputElement) {
+    const datalistId = element.getAttribute("list");
+    const datalist = datalistId ? document.getElementById(datalistId) : null;
+    if (datalist) datalist.innerHTML = datalistMarkup(values, selectedValue);
+    element.placeholder = placeholder;
+    element.value = selectedValue || "";
+    return;
+  }
+
   element.innerHTML = optionMarkup(values, placeholder, selectedValue);
+}
+function resolveBrandFilterValue(value) {
+  const query = normalizeWhitespace(value).toLocaleLowerCase("id-ID");
+  if (!query) return "";
+  return sortText(unique(state.plotings.map((plot) => plot.brand)))
+    .find((brand) => brand.toLocaleLowerCase("id-ID") === query) || "";
+}
+function applyBrandSearchFilter(scope, input, enforceSelection = false) {
+  const typedValue = input.value;
+  const matchedBrand = resolveBrandFilterValue(typedValue);
+
+  if (scope === "full" && !normalizeWhitespace(typedValue)) {
+    filters.full.brand = "";
+    renderFullTimeline();
+    return;
+  }
+
+  if (!matchedBrand) {
+    if (enforceSelection) {
+      input.value = scope === "full" ? filters.full.brand : filters.brand.brand;
+      showToast("Pilih brand dari daftar yang tersedia.");
+    }
+    return;
+  }
+
+  input.value = matchedBrand;
+  if (scope === "full") {
+    if (filters.full.brand === matchedBrand) return;
+    filters.full.brand = matchedBrand;
+    renderFullTimeline();
+    return;
+  }
+
+  if (filters.brand.brand === matchedBrand) return;
+  filters.brand.brand = matchedBrand;
+  populateSelects();
+  renderBrand();
+}
+function bindBrandSearchFilter(selector, scope) {
+  const input = $(selector);
+  if (!input) return;
+  input.addEventListener("input", () => applyBrandSearchFilter(scope, input));
+  input.addEventListener("change", () => applyBrandSearchFilter(scope, input, true));
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyBrandSearchFilter(scope, input, true);
+  });
+}
+function setSearchableBrandInput(inputSelector, datalistSelector, values, selectedValue = "") {
+  const input = $(inputSelector);
+  const datalist = $(datalistSelector);
+  if (datalist) {
+    datalist.innerHTML = values.map((value) => `<option value="${escapeHTML(value)}"></option>`).join("");
+  }
+  if (input) input.value = selectedValue || "";
 }
 function showToast(message) {
   const toast = $("#toast");
@@ -744,7 +828,7 @@ function populateSelects() {
   setSelectOptions("#plotGfxFilter", state.masters.gfx, "Semua materi GFX", filters.plot.gfx);
   setSelectOptions("#plotAiringFilter", AIRING_STATUSES, "Semua status tayang", filters.plot.airing);
 
-  setSelectOptions("#brandSelect", brands, "Pilih brand", filters.brand.brand);
+  setSearchableBrandInput("#brandSelect", "#brandSelectOptions", brands, filters.brand.brand);
   setSelectPairs("#brandYearSelect", yearPairs, "Pilih tahun", filters.brand.year);
   setSelectPairs("#brandMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.brand.month);
   setSelectOptions("#brandUnitSelect", state.masters.units, "Semua unit", filters.brand.unit);
@@ -758,7 +842,7 @@ function populateSelects() {
   setSelectPairs("#fullTimelineYearSelect", yearPairs, "Pilih tahun", filters.full.year);
   setSelectPairs("#fullTimelineMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.full.month);
   setSelectOptions("#fullTimelineUnitSelect", state.masters.units, "Semua unit", filters.full.unit);
-  setSelectOptions("#fullTimelineBrandSelect", brands, "Semua brand", filters.full.brand);
+  setSearchableBrandInput("#fullTimelineBrandSelect", "#fullTimelineBrandOptions", brands, filters.full.brand);
 
   setSelectOptions("#plotAdvertiserInput", state.masters.advertisers, "Pilih PT Advertiser");
   setSelectOptions("#plotUnitInput", state.masters.units, "Pilih Unit On Air");
@@ -876,18 +960,49 @@ function waEligiblePlot(plot) {
   return plot.planAiring === state.operationDate && Number(plot.spot) > 0 && !inactiveStatus.includes(plot.airingStatus);
 }
 
+function normalizedWaUnit(unit) {
+  return String(unit || "").toLocaleUpperCase("id-ID").replace(/[^A-Z0-9]/g, "");
+}
+
+function isMnctvUnit(unit) {
+  return normalizedWaUnit(unit) === "MNCTV";
+}
+
 function getWaProgramGroups() {
   const grouped = new Map();
+  const mnctvPlots = [];
+
   sortByDate(state.plotings.filter(waEligiblePlot)).forEach((plot) => {
     const program = String(plot.program || "Tanpa program").trim() || "Tanpa program";
     const unit = String(plot.unit || "Tanpa unit").trim() || "Tanpa unit";
+
+    // MNCTV memakai satu pesan untuk seluruh program pada tanggal operasional.
+    if (isMnctvUnit(unit)) {
+      mnctvPlots.push(plot);
+      return;
+    }
+
     const key = `${state.operationDate}::${unit}::${program}`;
-    if (!grouped.has(key)) grouped.set(key, { key, program, unit, plots: [] });
+    if (!grouped.has(key)) grouped.set(key, { key, program, unit, plots: [], template: "default" });
     grouped.get(key).plots.push(plot);
   });
-  return [...grouped.values()].sort((first, second) =>
-    first.unit.localeCompare(second.unit, "id") || first.program.localeCompare(second.program, "id")
-  );
+
+  if (mnctvPlots.length) {
+    const key = `${state.operationDate}::MNCTV::ALL`;
+    grouped.set(key, {
+      key,
+      program: "Semua Program",
+      unit: "MNCTV",
+      plots: mnctvPlots,
+      template: "mnctv"
+    });
+  }
+
+  return [...grouped.values()].sort((first, second) => {
+    const firstPriority = first.template === "mnctv" ? -1 : 0;
+    const secondPriority = second.template === "mnctv" ? -1 : 0;
+    return firstPriority - secondPriority || first.unit.localeCompare(second.unit, "id") || first.program.localeCompare(second.program, "id");
+  });
 }
 
 function getWaSpotItems(group) {
@@ -961,7 +1076,87 @@ function waAssignmentsComplete(items) {
   return Boolean(items.length) && items.every((item) => WA_SEGMENT_OPTIONS.includes(Number(waGeneratorState.assignments[item.key])));
 }
 
+function formatMnctvWaDate(dateValue) {
+  if (!dateValue) return "-";
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(dateValue).toLocaleUpperCase("id-ID");
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  }).format(date).replace(",", "").toLocaleUpperCase("id-ID");
+}
+
+function formatMnctvWaFormat(format) {
+  const normalized = String(format || "").trim().toLocaleUpperCase("id-ID");
+  const compact = normalized.replace(/\s+/g, "");
+  if (compact === "FS" || normalized.includes("FREEZE SCENE")) return "FS";
+  if (compact.includes("2D") && compact.includes("RT")) return "VA2D+RT";
+  return normalized.replace(/\s*\+\s*/g, "+").replace(/\s+/g, " ") || "VA";
+}
+
+function formatMnctvWaMaterial(plot) {
+  const brand = normalizeWhitespace(plot?.brand);
+  const version = normalizeWhitespace(plot?.version);
+  if (!version) return brand || "-";
+  if (!brand) return version;
+
+  const compactBrand = brand.toLocaleUpperCase("id-ID");
+  const compactVersion = version.toLocaleUpperCase("id-ID");
+  return compactVersion.includes(compactBrand) ? version : `${brand} ${version}`;
+}
+
+function buildMnctvWaMessage(group) {
+  const items = getWaSpotItems(group);
+  if (!group || !waAssignmentsComplete(items)) return "";
+
+  // Urutan program mengikuti urutan jadwal yang sudah ada, lalu setiap format
+  // dikelompokkan agar satu chat MNCTV tetap ringkas dan mudah diverifikasi.
+  const programGroups = new Map();
+  items.forEach((item) => {
+    const program = String(item.plot.program || "Tanpa program").trim() || "Tanpa program";
+    if (!programGroups.has(program)) programGroups.set(program, new Map());
+    const formats = programGroups.get(program);
+    const format = formatMnctvWaFormat(item.plot.format);
+    if (!formats.has(format)) formats.set(format, []);
+    formats.get(format).push(item);
+  });
+
+  const programBlocks = [...programGroups.entries()].map(([program, formats]) => {
+    const formatBlocks = [...formats.entries()].map(([format, formatItems]) => {
+      const detailLines = formatItems.map((item) => {
+        const segment = Number(waGeneratorState.assignments[item.key]);
+        return `- ${formatMnctvWaMaterial(item.plot)} *(Segmen ${segment})*`;
+      });
+      const notes = format === "FS"
+        ? ["", "Note:", "- FS background diberi scene still & blur."]
+        : [];
+      return [`${formatItems.length} SPOT ${format}`, ...detailLines, ...notes].join("\n");
+    }).join("\n\n");
+
+    return [
+      `*${program.toLocaleUpperCase("id-ID")}*`,
+      "=================================",
+      formatBlocks
+    ].join("\n");
+  });
+
+  return [
+    "Selamat Siang",
+    "",
+    "Terlampir Plan Virtual Ads MNCTV",
+    `*${formatMnctvWaDate(state.operationDate)}*`,
+    "=================================",
+    programBlocks.join("\n\n=================================\n"),
+    "",
+    "Terima kasih"
+  ].join("\n");
+}
+
 function buildWaMessage(group) {
+  if (group?.template === "mnctv") return buildMnctvWaMessage(group);
+
   const items = getWaSpotItems(group);
   if (!group || !waAssignmentsComplete(items)) return "";
 
@@ -1036,27 +1231,41 @@ function renderWaGenerator() {
   programList.innerHTML = groups.map((entry) => {
     const selected = entry.key === group.key;
     const spots = sum(entry.plots.map((plot) => plot.spot));
-    return `<button class="wa-program-button ${selected ? "is-selected" : ""}" data-wa-program="${encodeURIComponent(entry.key)}" type="button" aria-pressed="${selected}">
-      <strong>${escapeHTML(entry.program)}</strong>
-      <span>${escapeHTML(entry.unit)} · ${spots} spot · ${entry.plots.length} jadwal</span>
+    const programCount = unique(entry.plots.map((plot) => String(plot.program || "").trim()).filter(Boolean)).length;
+    const title = entry.template === "mnctv" ? "MNCTV · Semua program" : entry.program;
+    const meta = entry.template === "mnctv"
+      ? `${programCount} program · ${spots} spot · 1 chat`
+      : `${entry.unit} · ${spots} spot · ${entry.plots.length} jadwal`;
+    return `<button class="wa-program-button ${entry.template === "mnctv" ? "wa-program-button--mnctv" : ""} ${selected ? "is-selected" : ""}" data-wa-program="${encodeURIComponent(entry.key)}" type="button" aria-pressed="${selected}">
+      <strong>${escapeHTML(title)}</strong>
+      <span>${escapeHTML(meta)}</span>
     </button>`;
   }).join("");
 
   const complete = waAssignmentsComplete(items);
   const assignedCount = items.filter((item) => WA_SEGMENT_OPTIONS.includes(Number(waGeneratorState.assignments[item.key]))).length;
-  selectedTitle.textContent = group.program;
-  selectedMeta.textContent = `${group.unit} · ${formatWaDate(state.operationDate)} · ${items.length} spot`;
+  const isMnctvTemplate = group.template === "mnctv";
+  selectedTitle.textContent = isMnctvTemplate ? "MNCTV · Semua Program" : group.program;
+  selectedMeta.textContent = isMnctvTemplate
+    ? `${unique(group.plots.map((plot) => plot.program)).length} program · ${formatMnctvWaDate(state.operationDate)} · ${items.length} spot`
+    : `${group.unit} · ${formatWaDate(state.operationDate)} · ${items.length} spot`;
   hint.textContent = complete
-    ? `Semua ${items.length} spot sudah ditempatkan pada segment.`
+    ? `Semua ${items.length} spot sudah ditempatkan pada segment.${isMnctvTemplate ? " Pesan MNCTV akan digabung dalam satu chat." : ""}`
     : `${assignedCount} dari ${items.length} spot sudah ditempatkan. Pilih Segment 1 sampai Segment 5 untuk setiap spot.`;
 
   assignmentList.innerHTML = items.map((item) => {
     const selectedSegment = Number(waGeneratorState.assignments[item.key]) || "";
     const options = [`<option value="">Pilih segment</option>`, ...WA_SEGMENT_OPTIONS.map((segment) => `<option value="${segment}" ${selectedSegment === segment ? "selected" : ""}>Segment ${segment}</option>`)].join("");
+    const assignmentTitle = isMnctvTemplate
+      ? `${item.plot.program} · ${item.plot.brand}`
+      : item.plot.brand;
+    const assignmentMeta = isMnctvTemplate
+      ? `${formatMnctvWaFormat(item.plot.format)} · ${formatMnctvWaMaterial(item.plot)} · Spot ${item.spotIndex} dari ${item.spotTotal}`
+      : `${formatWaFormat(item.plot.format)} · Durasi ${formatWaDuration(item.plot.duration)} · Spot ${item.spotIndex} dari ${item.spotTotal}`;
     return `<article class="wa-assignment-item">
       <div class="wa-assignment-detail">
-        <strong>${escapeHTML(item.plot.brand)}</strong>
-        <span>${escapeHTML(formatWaFormat(item.plot.format))} · Durasi ${escapeHTML(formatWaDuration(item.plot.duration))} · Spot ${item.spotIndex} dari ${item.spotTotal}</span>
+        <strong>${escapeHTML(assignmentTitle)}</strong>
+        <span>${escapeHTML(assignmentMeta)}</span>
       </div>
       <label>Segment<select class="wa-segment-select" data-wa-spot-key="${encodeURIComponent(item.key)}" aria-label="Pilih segment untuk ${escapeHTML(item.plot.brand)} spot ${item.spotIndex}">${options}</select></label>
     </article>`;
@@ -1161,15 +1370,18 @@ function renderFullTimeline() {
     const weekday = new Date(`${date}T00:00:00`).getDay();
     const weekend = weekday === 0 || weekday === 6 ? " full-calendar-weekend" : "";
     const isToday = date === state.operationDate ? " full-calendar-today" : "";
+    const isPast = date < state.operationDate;
+    const isComplete = allSchedulesFinal(dailyPlots);
+    const dayState = `${isPast ? " full-calendar-past" : ""}${isComplete ? " full-calendar-complete" : ""}`;
     const eventMarkup = dailyPlots.length
-      ? `<div class="full-calendar-events full-calendar-events-all">${dailyPlots.map((plot) => `<button class="full-calendar-event full-calendar-event-grid ${isZeroSpot(plot.spot) ? "is-zero-spot" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.brand} · ${plot.program} · ${plot.spot} spot`)}">
+      ? `<div class="full-calendar-events full-calendar-events-all">${dailyPlots.map((plot) => `<button class="full-calendar-event full-calendar-event-grid ${isZeroSpot(plot.spot) ? "is-zero-spot" : ""}${isFinalAiringStatus(plot.airingStatus) ? " is-complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.brand} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">
           <span class="full-calendar-event-top"><span class="full-calendar-unit">${unitLabelMarkup(plot.unit, "calendar")}</span><span class="full-calendar-spot ${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot}</span></span>
           <strong title="${escapeHTML(plot.brand)}">${escapeHTML(plot.brand)}</strong>
           <span class="full-calendar-program" title="${escapeHTML(plot.program)}">${escapeHTML(plot.program)}</span>
         </button>`).join("")}</div>`
       : `<span class="full-calendar-empty">Tidak ada jadwal</span>`;
 
-    return `<div class="full-calendar-day${weekend}${isToday}">
+    return `<div class="full-calendar-day${weekend}${isToday}${dayState}">
       <div class="full-calendar-day-head"><strong>${dateIndex + 1}</strong>${dailyPlots.length ? `<span>${dailySpot} spot</span>` : ""}</div>
       ${eventMarkup}
     </div>`;
@@ -1254,7 +1466,15 @@ function renderCalendar(month, plots) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const events = eventMap[date] || [];
     const todayClass = date === state.operationDate ? "today-day" : "";
-    cells.push(`<div class="calendar-day ${todayClass}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event" data-edit-schedule="${escapeHTML(plot.id)}" type="button">${unitLabelMarkup(plot.unit, "calendar")}<span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
+    const isPast = date < state.operationDate;
+    const isComplete = allSchedulesFinal(events);
+    const dayClasses = [
+      "calendar-day",
+      todayClass,
+      isPast ? "calendar-day--past" : "",
+      isComplete ? "calendar-day--complete" : ""
+    ].filter(Boolean).join(" ");
+    cells.push(`<div class="${dayClasses}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event ${isFinalAiringStatus(plot.airingStatus) ? "calendar-event--complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">${unitLabelMarkup(plot.unit, "calendar")}<span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
   }
   const remainder = cells.length % 7;
   if (remainder) for (let index = remainder; index < 7; index += 1) cells.push(`<div class="calendar-day muted-day"></div>`);
@@ -1337,9 +1557,9 @@ function renderActiveView() {
 }
 
 function renderAll() {
-  // Sebelumnya seluruh tabel, kalender, report, dan master dirender sekaligus.
-  // Untuk data yang semakin besar, pola itu memperlambat tampilan awal.
-  populateSelects();
+  // Saat dashboard dibuka pertama kali, jangan isi semua filter halaman tersembunyi.
+  // Dropdown besar seperti brand, PIC, program, dan format baru dibuat saat halamannya dibuka.
+  if (!["dashboard", "guide"].includes(activeView)) populateSelects();
   $("#operationDate").value = state.operationDate;
   renderActiveView();
   updatePageTitle();
@@ -2500,6 +2720,15 @@ function exportPicExcel() {
   showToast(`Report PIC ${selectedPic || "semua PIC"} diexport ke Excel.`);
 }
 
+function bindAuthenticationEvents() {
+  $("#authLoginForm")?.addEventListener("submit", signInWithPassword);
+  $$(".auth-account-button").forEach((button) => {
+    button.addEventListener("click", () => selectTeamAccount(button.dataset.teamAccount, true));
+  });
+  $("#authPasswordInput")?.addEventListener("input", updateAuthForm);
+  $("#signOutButton")?.addEventListener("click", signOutFromFirebase);
+}
+
 function bindEvents() {
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $("#primaryActionButton").addEventListener("click", () => openPlotModal());
@@ -2520,10 +2749,6 @@ function bindEvents() {
   $("#addScheduleButton").addEventListener("click", () => addScheduleRow(addDays(state.operationDate, 1), 1, "Planned", ""));
   $("#exportPlotingsExcelButton").addEventListener("click", exportPlotingsExcel);
   $("#exportPicExcelButton").addEventListener("click", exportPicExcel);
-  $("#authLoginForm").addEventListener("submit", signInWithPassword);
-  $$(".auth-account-button").forEach((button) => button.addEventListener("click", () => selectTeamAccount(button.dataset.teamAccount, true)));
-  $("#authPasswordInput").addEventListener("input", updateAuthForm);
-  $("#signOutButton").addEventListener("click", signOutFromFirebase);
   $("#waCopyButton").addEventListener("click", copyWaMessage);
   $("#waOpenButton").addEventListener("click", openWaMessage);
   $("#waResetSegmentsButton").addEventListener("click", resetWaSegments);
@@ -2555,9 +2780,9 @@ function bindEvents() {
   $("#fullTimelineYearSelect").addEventListener("change", (event) => { filters.full.year = event.target.value; renderFullTimeline(); });
   $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
-  $("#fullTimelineBrandSelect").addEventListener("change", (event) => { filters.full.brand = event.target.value; renderFullTimeline(); });
+  bindBrandSearchFilter("#fullTimelineBrandSelect", "full");
   $("#snapshotBrandDetailButton").addEventListener("click", snapshotBrandDetailTable);
-  $("#brandSelect").addEventListener("change", (event) => { filters.brand.brand = event.target.value; populateSelects(); renderBrand(); });
+  bindBrandSearchFilter("#brandSelect", "brand");
   $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; populateSelects(); renderBrand(); });
   $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; populateSelects(); renderBrand(); });
   $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; populateSelects(); renderBrand(); });
@@ -2642,7 +2867,17 @@ function watchOperationalDate() {
 }
 
 try { localStorage.removeItem(LOCAL_SETTINGS_KEY); } catch (error) { /* Pengaturan lama boleh diabaikan. */ }
-bindEvents();
-renderAll();
-watchOperationalDate();
+
+// Autentikasi harus aktif lebih dulu. Kesalahan UI di halaman non-login tidak boleh
+// membuat pilihan akun atau tombol Masuk berhenti bekerja.
 initializeFirebaseRealtime();
+bindAuthenticationEvents();
+
+try {
+  bindEvents();
+  renderAll();
+  watchOperationalDate();
+} catch (error) {
+  console.error("Inisialisasi tampilan aplikasi gagal.", error);
+  showToast("Sebagian tampilan belum siap. Login tetap dapat digunakan.");
+}

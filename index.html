@@ -12,8 +12,8 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=37" />
-  <link rel="stylesheet" href="style.css?v=33" />
+  <link rel="modulepreload" href="app.js?v=46" />
+  <link rel="stylesheet" href="style.css?v=43" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -133,8 +133,8 @@
       </section>
 
       <section class="view" data-view-panel="plotings" id="plotingsView">
-        <div class="section-intro panel">
-          <div><p class="section-label">2026 VA DIGITAL</p><h3>Master Ploting VA</h3><p>Satu tempat untuk semua jadwal tayang.</p></div>
+        <div class="section-intro panel section-intro--actions">
+          <div class="section-intro-copy"><p class="section-label">2026 VA DIGITAL</p><h3>Master Ploting VA</h3><p>Satu tempat untuk semua jadwal tayang.</p></div>
           <div class="section-action-group">
             <button class="secondary-button" id="legacyImportButton" type="button">⇧ Import Data Lama</button>
             <button class="secondary-button" id="exportPlotingsExcelButton" type="button">⇩ Export Excel</button>
@@ -163,8 +163,8 @@
       </section>
 
       <section class="view" data-view-panel="daily" id="dailyView">
-        <div class="section-intro panel timeline-header">
-          <div><p class="section-label">PIVOT MASTER</p><h3>Timeline Harian</h3><p>Jadwal pada tanggal yang dipilih.</p></div>
+        <div class="section-intro panel timeline-header section-intro--single-control">
+          <div class="section-intro-copy"><p class="section-label">PIVOT MASTER</p><h3>Timeline Harian</h3><p>Jadwal pada tanggal yang dipilih.</p></div>
           <label class="date-control">Tanggal timeline<input id="dailyDateInput" type="date" /></label>
         </div>
         <div class="daily-kpi-grid" id="dailyKpiGrid"></div>
@@ -179,11 +179,11 @@
       </section>
 
       <section class="view" data-view-panel="wagenerator" id="waGeneratorView">
-        <div class="section-intro panel wa-generator-header">
-          <div>
+        <div class="section-intro panel wa-generator-header section-intro--single-control">
+          <div class="section-intro-copy">
             <p class="section-label">SHARE OPERASIONAL</p>
             <h3>Generator Pesan WhatsApp</h3>
-            <p>Pilih program pada tanggal operasional, lalu tempatkan setiap spot secara manual ke Segment 1 sampai Segment 5.</p>
+            <p>Pilih program pada tanggal operasional, lalu tempatkan setiap spot secara manual ke Segment 1 sampai Segment 5. Khusus MNCTV, seluruh program otomatis digabung menjadi satu chat.</p>
           </div>
           <div class="wa-generator-date"><span>TANGGAL PESAN</span><strong id="waGeneratorDateLabel">Mengikuti tanggal operasional</strong></div>
         </div>
@@ -226,17 +226,26 @@
       </section>
 
       <section class="view" data-view-panel="fulltimeline" id="fullTimelineView">
-        <div class="section-intro panel timeline-header">
-          <div>
+        <div class="section-intro panel timeline-header section-intro--filters section-intro--full-timeline">
+          <div class="section-intro-copy">
             <p class="section-label">TIMELINE BULANAN</p>
             <h3>Kalender Timeline Full</h3>
             <p>Lihat Unit On Air, brand, program, dan spot dalam satu kalender bulanan.</p>
           </div>
-          <div class="brand-filter-controls full-timeline-controls">
-            <label>Tahun<select id="fullTimelineYearSelect"></select></label>
-            <label>Bulan<select id="fullTimelineMonthSelect"></select></label>
-            <label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
-            <label>Brand<select id="fullTimelineBrandSelect"></select></label>
+          <div class="filter-panel" aria-label="Filter Kalender Timeline Full">
+            <div class="filter-panel-heading">
+              <span>Filter kalender</span>
+              <small>Atur periode dan cakupan tampilan</small>
+            </div>
+            <div class="brand-filter-controls full-timeline-controls">
+              <label>Tahun<select id="fullTimelineYearSelect"></select></label>
+              <label>Bulan<select id="fullTimelineMonthSelect"></select></label>
+              <label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
+              <label class="brand-search-filter">Brand
+                <input id="fullTimelineBrandSelect" class="brand-search-input" type="search" list="fullTimelineBrandOptions" autocomplete="off" placeholder="Cari atau pilih brand" aria-label="Cari atau pilih brand untuk Kalender Full" />
+                <datalist id="fullTimelineBrandOptions"></datalist>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -270,15 +279,24 @@
       </section>
 
       <section class="view" data-view-panel="brand" id="brandView">
-        <div class="section-intro panel timeline-header">
-          <div><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Filter brand, periode, unit, program, dan format VA.</p></div>
-          <div class="brand-filter-controls">
-            <label>Brand<select id="brandSelect"></select></label>
-            <label>Tahun<select id="brandYearSelect"></select></label>
-            <label>Bulan<select id="brandMonthSelect"></select></label>
-            <label>Unit On Air<select id="brandUnitSelect"></select></label>
-            <label>Program<select id="brandProgramSelect"></select></label>
-            <label>Format VA<select id="brandFormatSelect"></select></label>
+        <div class="section-intro panel timeline-header section-intro--filters section-intro--brand">
+          <div class="section-intro-copy"><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Filter brand, periode, unit, program, dan format VA.</p></div>
+          <div class="filter-panel" aria-label="Filter Timeline Brand">
+            <div class="filter-panel-heading">
+              <span>Filter timeline</span>
+              <small>Pilih brand, periode, dan detail penayangan</small>
+            </div>
+            <div class="brand-filter-controls">
+              <label class="brand-search-filter">Brand
+                <input id="brandSelect" class="brand-search-input" type="search" list="brandSelectOptions" autocomplete="off" placeholder="Cari atau pilih brand" aria-label="Cari atau pilih brand untuk Timeline Brand" />
+                <datalist id="brandSelectOptions"></datalist>
+              </label>
+              <label>Tahun<select id="brandYearSelect"></select></label>
+              <label>Bulan<select id="brandMonthSelect"></select></label>
+              <label>Unit On Air<select id="brandUnitSelect"></select></label>
+              <label>Program<select id="brandProgramSelect"></select></label>
+              <label>Format VA<select id="brandFormatSelect"></select></label>
+            </div>
           </div>
         </div>
         <div class="brand-stats" id="brandStats"></div>
@@ -300,8 +318,8 @@
 
 
       <section class="view" data-view-panel="picreport" id="picReportView">
-        <div class="section-intro panel timeline-header">
-          <div><p class="section-label">MONITORING PIC</p><h3>Report per PIC</h3><p>Lihat beban kerja setiap PIC.</p></div>
+        <div class="section-intro panel timeline-header section-intro--filters section-intro--pic-report">
+          <div class="section-intro-copy"><p class="section-label">MONITORING PIC</p><h3>Report per PIC</h3><p>Lihat beban kerja setiap PIC.</p></div>
           <div class="report-header-actions">
             <div class="brand-filter-controls">
               <label>PIC Ploting<select id="picReportSelect"></select></label>
@@ -339,8 +357,8 @@
       </section>
 
       <section class="view" data-view-panel="masters" id="mastersView">
-        <div class="section-intro panel">
-          <div><p class="section-label">DATABASE PILIHAN</p><h3>Master Data</h3><p>Kelola semua pilihan dropdown untuk form ploting.</p></div>
+        <div class="section-intro panel section-intro--static">
+          <div class="section-intro-copy"><p class="section-label">DATABASE PILIHAN</p><h3>Master Data</h3><p>Kelola semua pilihan dropdown untuk form ploting.</p></div>
         </div>
         <div class="master-layout">
           <article class="panel master-add-panel">
@@ -511,7 +529,7 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=37"></script>
+  <script type="module" src="app.js?v=46"></script>
 </body>
 </html>
 
