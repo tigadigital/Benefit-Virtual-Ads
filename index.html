@@ -12,7 +12,7 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=46" />
+  <link rel="modulepreload" href="app.js?v=__BUILD_VERSION__" />
   <link rel="stylesheet" href="style.css?v=43" />
 </head>
 <body>
@@ -434,7 +434,17 @@
       </div>
 
       <div class="form-section schedule-section">
-        <div class="form-section-title"><span>2</span><div><strong>Jadwal tayang</strong><small>Atur tanggal, spot, status, dan note untuk setiap jadwal. Spot dapat bernilai 0.</small></div></div>
+        <div class="form-section-title"><span>2</span><div><strong>Jadwal tayang</strong><small>Pilih beberapa tanggal lewat kalender atau tambah satu jadwal secara manual. Spot dapat bernilai 0.</small></div></div>
+        <section class="multi-date-picker-shell" aria-labelledby="multiDatePickerLabel">
+          <div class="multi-date-picker-toolbar">
+            <div>
+              <strong id="multiDatePickerLabel">Pilih banyak tanggal sekaligus</strong>
+              <small>Centang beberapa tanggal dalam satu kalender. Tanggal yang dipilih langsung dibuat sebagai jadwal baru.</small>
+            </div>
+            <button class="secondary-button" id="multiDatePickerToggle" type="button" aria-expanded="false" aria-controls="multiDatePicker">▦ Pilih beberapa tanggal</button>
+          </div>
+          <div class="multi-date-picker" id="multiDatePicker" hidden></div>
+        </section>
         <div class="schedule-table-wrap">
           <table class="schedule-table">
             <thead><tr><th>Tanggal tayang</th><th>Jumlah spot</th><th>Status tayang</th><th>Note tambahan</th><th></th></tr></thead>
@@ -529,7 +539,8 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="app.js?v=46"></script>
+  <script src="update-check.js?v=__BUILD_VERSION__" defer></script>
+  <script type="module" src="app.js?v=__BUILD_VERSION__"></script>
 </body>
 </html>
 

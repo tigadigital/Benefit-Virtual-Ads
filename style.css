@@ -2888,3 +2888,204 @@ tbody tr:hover { background: #f5faf9; }
   #brandView .brand-filter-controls { grid-template-columns: 1fr; }
   #brandView .brand-filter-controls .brand-search-filter { grid-column: auto; }
 }
+
+/* v0.20: pemilih multi-tanggal untuk modal Tambah Ploting */
+.multi-date-picker-shell {
+  margin-top: 18px;
+  border: 1px solid #d6e4e2;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fcfefe 0%, #f5faf9 100%);
+}
+.multi-date-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+.multi-date-picker-toolbar strong {
+  display: block;
+  color: #173f47;
+  font-size: 14px;
+  font-weight: 900;
+}
+.multi-date-picker-toolbar small {
+  display: block;
+  max-width: 630px;
+  margin-top: 4px;
+  color: #607a80;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+.multi-date-picker-toolbar .secondary-button { flex: 0 0 auto; }
+.multi-date-picker {
+  margin: 0 14px 14px;
+  padding: 15px;
+  border: 1px solid #cfdfdd;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 7px 18px rgba(20, 67, 70, .07);
+}
+.multi-date-picker[hidden] { display: none; }
+.multi-date-picker-head,
+.multi-date-picker-actions,
+.multi-date-picker-selection,
+.multi-date-picker-nav,
+.multi-date-picker-actions > div {
+  display: flex;
+  align-items: center;
+}
+.multi-date-picker-head {
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.multi-date-picker-head .section-label { color: #618087; font-size: 9px; }
+.multi-date-picker-head strong {
+  display: block;
+  margin-top: 3px;
+  color: #123d46;
+  font-size: 17px;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+.multi-date-picker-nav { gap: 7px; }
+.multi-date-picker-nav .icon-button {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-radius: 8px;
+  font-size: 22px;
+  line-height: 1;
+}
+.multi-date-weekdays,
+.multi-date-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.multi-date-weekdays { margin-bottom: 6px; }
+.multi-date-weekdays span {
+  padding: 5px 0;
+  color: #6b858a;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .35px;
+  text-align: center;
+  text-transform: uppercase;
+}
+.multi-date-day,
+.multi-date-picker-empty {
+  min-height: 38px;
+  border-radius: 9px;
+}
+.multi-date-day {
+  border: 1px solid transparent;
+  color: #294b52;
+  background: #f4f8f7;
+  font-size: 13px;
+  font-weight: 850;
+}
+.multi-date-day:hover:not(:disabled) {
+  border-color: #78a9a4;
+  background: #e8f3f0;
+}
+.multi-date-day.is-selected {
+  border-color: #0c5b65;
+  color: #fff;
+  background: #0c5b65;
+  box-shadow: 0 4px 9px rgba(8, 74, 82, .17);
+}
+.multi-date-day.is-operation-date:not(.is-selected) { box-shadow: inset 0 0 0 2px #d5b657; }
+.multi-date-day.is-existing,
+.multi-date-day:disabled {
+  cursor: not-allowed;
+  border-color: #d7e1e0;
+  color: #9aa9ab;
+  background: #f8fafa;
+  opacity: 1;
+  text-decoration: line-through;
+}
+.multi-date-picker-selection {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 12px 0;
+  border-top: 1px solid #e2ecea;
+  color: #345a62;
+  font-size: 12px;
+}
+.multi-date-picker-selection strong { flex: 0 0 auto; color: #173e46; }
+.multi-date-picker-selection > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.multi-date-picker-selection span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #24616a;
+  background: #e7f2f0;
+  font-size: 11px;
+  font-weight: 850;
+}
+.multi-date-picker-selection .multi-date-picker-none {
+  color: #899b9e;
+  background: #f1f4f4;
+}
+.multi-date-picker-actions {
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+.multi-date-picker-actions > div { gap: 8px; }
+.multi-date-picker-actions .text-button { font-size: 12px; }
+
+@media (max-width: 680px) {
+  .multi-date-picker-toolbar { align-items: stretch; flex-direction: column; }
+  .multi-date-picker-toolbar .secondary-button { width: 100%; }
+  .multi-date-picker { margin: 0 10px 10px; padding: 12px; }
+  .multi-date-day, .multi-date-picker-empty { min-height: 34px; }
+  .multi-date-picker-selection { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .multi-date-picker-selection > div { justify-content: flex-start; }
+  .multi-date-picker-actions { align-items: stretch; flex-direction: column; }
+  .multi-date-picker-actions > div { width: 100%; }
+  .multi-date-picker-actions button { width: 100%; }
+}
+
+/* Notifikasi aman saat versi website baru tersedia. */
+.app-update-notice {
+  position: fixed;
+  z-index: 80;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(420px, calc(100vw - 36px));
+  transform: translateY(14px);
+  opacity: 0;
+  pointer-events: none;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 10px;
+  color: #fff;
+  background: #0b4751;
+  box-shadow: 0 12px 28px rgba(7, 54, 61, .24);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.app-update-notice.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+@media (max-width: 680px) {
+  .app-update-notice {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+    font-size: 12px;
+  }
+}

@@ -1,5 +1,5 @@
 /*
-  VA Benefit Ploting v0.46
+  VA Benefit Ploting v0.49
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
@@ -130,6 +130,15 @@ let legacyImportInProgress = false;
 
 // Pengaturan generator WA hanya berlaku selama sesi dan tidak mengubah data ploting utama.
 let waGeneratorState = { selectedProgramKey: "", assignments: {} };
+
+// Pemilih multi-tanggal hanya dipakai pada modal Tambah/Edit Ploting.
+// Tanggal yang dipilih akan ditambahkan sebagai baris jadwal terpisah.
+let multiDatePickerState = {
+  open: false,
+  year: Number(yearFromDate(DEFAULT_OPERATION_DATE)),
+  month: Number(monthFromDate(DEFAULT_OPERATION_DATE)),
+  selectedDates: new Set()
+};
 
 // Data Juli 2026 sudah lebih dulu diinput langsung ke aplikasi.
 // Import data lama hanya mengambil periode Januari sampai Juni 2026.
@@ -1593,6 +1602,141 @@ function setView(view) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function scheduleDatesInForm() {
+  return new Set(
+    $$("#scheduleRows .schedule-date-input")
+      .map((input) => input.value)
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+  );
+}
+
+function resetMultiDatePicker() {
+  multiDatePickerState.open = false;
+  multiDatePickerState.year = Number(yearFromDate(state.operationDate)) || Number(yearFromDate(DEFAULT_OPERATION_DATE));
+  multiDatePickerState.month = Number(monthFromDate(state.operationDate)) || Number(monthFromDate(DEFAULT_OPERATION_DATE));
+  multiDatePickerState.selectedDates = new Set();
+}
+
+function multiDatePickerMonthLabel(year, month) {
+  return new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" })
+    .format(new Date(year, month - 1, 1));
+}
+
+function multiDatePickerIsoDate(year, month, day) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function renderMultiDatePicker() {
+  const picker = $("#multiDatePicker");
+  const toggle = $("#multiDatePickerToggle");
+  if (!picker || !toggle) return;
+
+  const { open, year, month, selectedDates } = multiDatePickerState;
+  picker.hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.innerHTML = open ? "Tutup kalender" : "▦ Pilih beberapa tanggal";
+
+  if (!open) {
+    picker.innerHTML = "";
+    return;
+  }
+
+  const existingDates = scheduleDatesInForm();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstWeekday = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const calendarCells = Array.from({ length: totalCells }, (_, index) => {
+    const day = index - firstWeekday + 1;
+    if (day < 1 || day > daysInMonth) {
+      return '<span class="multi-date-picker-empty" aria-hidden="true"></span>';
+    }
+
+    const date = multiDatePickerIsoDate(year, month, day);
+    const isExisting = existingDates.has(date);
+    const isSelected = selectedDates.has(date);
+    const isToday = date === state.operationDate;
+    const classes = [
+      "multi-date-day",
+      isSelected ? "is-selected" : "",
+      isExisting ? "is-existing" : "",
+      isToday ? "is-operation-date" : ""
+    ].filter(Boolean).join(" ");
+    const label = isExisting
+      ? `${formatDate(date)} sudah ada pada tabel jadwal`
+      : `${isSelected ? "Batalkan pilihan" : "Pilih"} ${formatDate(date)}`;
+
+    return `<button class="${classes}" data-multi-date-day="${date}" type="button" aria-label="${escapeHTML(label)}" aria-pressed="${isSelected}" ${isExisting ? "disabled" : ""}>${day}</button>`;
+  }).join("");
+
+  const selectedList = [...selectedDates].sort();
+  const selectedSummary = selectedList.length
+    ? selectedList.slice(0, 5).map((date) => `<span>${escapeHTML(formatDate(date, { day: "2-digit", month: "short" }))}</span>`).join("") + (selectedList.length > 5 ? `<span>+${selectedList.length - 5} lagi</span>` : "")
+    : '<span class="multi-date-picker-none">Belum ada tanggal dipilih</span>';
+
+  picker.innerHTML = `
+    <div class="multi-date-picker-head">
+      <div>
+        <p class="section-label">PILIH TANGGAL</p>
+        <strong>${escapeHTML(multiDatePickerMonthLabel(year, month))}</strong>
+      </div>
+      <div class="multi-date-picker-nav" aria-label="Navigasi bulan">
+        <button class="icon-button" data-multi-date-action="previous" type="button" aria-label="Bulan sebelumnya">‹</button>
+        <button class="icon-button" data-multi-date-action="next" type="button" aria-label="Bulan berikutnya">›</button>
+      </div>
+    </div>
+    <div class="multi-date-weekdays" aria-hidden="true"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+    <div class="multi-date-calendar" role="group" aria-label="Pilih beberapa tanggal pada ${escapeHTML(multiDatePickerMonthLabel(year, month))}">${calendarCells}</div>
+    <div class="multi-date-picker-selection"><strong>${selectedList.length} tanggal dipilih</strong><div>${selectedSummary}</div></div>
+    <div class="multi-date-picker-actions">
+      <button class="text-button" data-multi-date-action="clear" type="button" ${selectedList.length ? "" : "disabled"}>Kosongkan pilihan</button>
+      <div>
+        <button class="secondary-button" data-multi-date-action="cancel" type="button">Batal</button>
+        <button class="primary-button" data-multi-date-action="apply" type="button" ${selectedList.length ? "" : "disabled"}>+ Tambahkan ${selectedList.length || ""} tanggal</button>
+      </div>
+    </div>`;
+}
+
+function toggleMultiDatePicker() {
+  multiDatePickerState.open = !multiDatePickerState.open;
+  if (multiDatePickerState.open && (!Number.isInteger(multiDatePickerState.year) || !Number.isInteger(multiDatePickerState.month))) {
+    multiDatePickerState.year = Number(yearFromDate(state.operationDate));
+    multiDatePickerState.month = Number(monthFromDate(state.operationDate));
+  }
+  renderMultiDatePicker();
+}
+
+function shiftMultiDatePickerMonth(direction) {
+  const next = new Date(multiDatePickerState.year, multiDatePickerState.month - 1 + direction, 1);
+  multiDatePickerState.year = next.getFullYear();
+  multiDatePickerState.month = next.getMonth() + 1;
+  renderMultiDatePicker();
+}
+
+function toggleMultiDatePickerDate(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || scheduleDatesInForm().has(date)) return;
+  if (multiDatePickerState.selectedDates.has(date)) multiDatePickerState.selectedDates.delete(date);
+  else multiDatePickerState.selectedDates.add(date);
+  renderMultiDatePicker();
+}
+
+function applyMultiDatePickerDates() {
+  const existingDates = scheduleDatesInForm();
+  const dates = [...multiDatePickerState.selectedDates]
+    .filter((date) => !existingDates.has(date))
+    .sort((first, second) => first.localeCompare(second));
+
+  if (!dates.length) {
+    showToast("Pilih minimal satu tanggal baru pada kalender.");
+    return;
+  }
+
+  dates.forEach((date) => addScheduleRow(date, 1, "Planned", ""));
+  multiDatePickerState.selectedDates = new Set();
+  multiDatePickerState.open = false;
+  renderMultiDatePicker();
+  showToast(`${dates.length} tanggal ditambahkan ke jadwal.`);
+}
+
 function buildScheduleRow(date = state.operationDate, spot = 1, airingStatus = "Planned", scheduleNote = "") {
   // Spot 0 valid, misalnya ketika jadwal tetap dicatat tetapi tidak jadi tayang.
   const normalizedSpot = Number.isInteger(Number(spot)) && Number(spot) >= 0 ? Number(spot) : 1;
@@ -1624,6 +1768,7 @@ function openPlotModal(batchId = "") {
   form.reset();
   $("#plotBatchIdInput").value = "";
   $("#scheduleRows").innerHTML = "";
+  resetMultiDatePicker();
   setFormSelectValue("#plotAdvertiserInput", state.masters.advertisers, "Pilih PT Advertiser");
   setFormSelectValue("#plotUnitInput", state.masters.units, "Pilih Unit On Air");
   setFormSelectValue("#plotPodInput", state.masters.pods, "Pilih POD");
@@ -1657,12 +1802,15 @@ function openPlotModal(batchId = "") {
     $("#plotModalTitle").textContent = "Tambah Ploting Benefit";
   }
   updateScheduleRemoveButtons();
+  renderMultiDatePicker();
   $("#plotModalBackdrop").classList.add("open");
   $("#plotModalBackdrop").setAttribute("aria-hidden", "false");
   setTimeout(() => $("#plotAdvertiserInput").focus(), 40);
 }
 
 function closePlotModal() {
+  resetMultiDatePicker();
+  renderMultiDatePicker();
   $("#plotModalBackdrop").classList.remove("open");
   $("#plotModalBackdrop").setAttribute("aria-hidden", "true");
 }
@@ -2746,7 +2894,11 @@ function bindEvents() {
   $("#scheduleEditDateInput").addEventListener("change", syncScheduleSlideControls);
   $("#scheduleSlideToggle").addEventListener("change", syncScheduleSlideControls);
   $("#masterForm").addEventListener("submit", addMasterValue);
-  $("#addScheduleButton").addEventListener("click", () => addScheduleRow(addDays(state.operationDate, 1), 1, "Planned", ""));
+  $("#addScheduleButton").addEventListener("click", () => {
+    addScheduleRow(addDays(state.operationDate, 1), 1, "Planned", "");
+    if (!$("#multiDatePicker")?.hidden) renderMultiDatePicker();
+  });
+  $("#multiDatePickerToggle").addEventListener("click", toggleMultiDatePicker);
   $("#exportPlotingsExcelButton").addEventListener("click", exportPlotingsExcel);
   $("#exportPicExcelButton").addEventListener("click", exportPicExcel);
   $("#waCopyButton").addEventListener("click", copyWaMessage);
@@ -2794,6 +2946,21 @@ function bindEvents() {
   $("#masterTypeInput").addEventListener("change", (event) => { $("#masterValueInput").placeholder = MASTER_META[event.target.value].placeholder; });
 
   document.addEventListener("click", (event) => {
+    const multiDateDay = event.target.closest("[data-multi-date-day]");
+    if (multiDateDay && !multiDateDay.disabled) {
+      toggleMultiDatePickerDate(multiDateDay.dataset.multiDateDay || "");
+      return;
+    }
+    const multiDateAction = event.target.closest("[data-multi-date-action]");
+    if (multiDateAction) {
+      const action = multiDateAction.dataset.multiDateAction;
+      if (action === "previous") shiftMultiDatePickerMonth(-1);
+      if (action === "next") shiftMultiDatePickerMonth(1);
+      if (action === "clear") { multiDatePickerState.selectedDates = new Set(); renderMultiDatePicker(); }
+      if (action === "cancel") { multiDatePickerState.selectedDates = new Set(); multiDatePickerState.open = false; renderMultiDatePicker(); }
+      if (action === "apply") applyMultiDatePickerDates();
+      return;
+    }
     const closeButton = event.target.closest("[data-close-modal]");
     if (closeButton) { closePlotModal(); return; }
     const closeScheduleButton = event.target.closest("[data-close-schedule-modal]");
@@ -2836,6 +3003,7 @@ function bindEvents() {
       const rows = $$("#scheduleRows .schedule-row");
       if (rows.length > 1) removeSchedule.closest(".schedule-row").remove();
       updateScheduleRemoveButtons();
+      if (!$("#multiDatePicker")?.hidden) renderMultiDatePicker();
       return;
     }
     const deleteScheduleButton = event.target.closest("[data-delete-schedule]");
@@ -2881,56 +3049,3 @@ try {
   console.error("Inisialisasi tampilan aplikasi gagal.", error);
   showToast("Sebagian tampilan belum siap. Login tetap dapat digunakan.");
 }
-
-const APP_VERSION_URL = "version.json";
-const VERSION_CHECK_INTERVAL = 60_000;
-
-let loadedAppVersion = "";
-
-async function getPublishedVersion() {
-  const response = await fetch(`${APP_VERSION_URL}?t=${Date.now()}`, {
-    cache: "no-store"
-  });
-
-  if (!response.ok) return "";
-  const data = await response.json();
-  return String(data.version || "");
-}
-
-function isUserEditingData() {
-  const modalOpen = document.querySelector(".modal-backdrop.open");
-  const activeElement = document.activeElement;
-
-  return Boolean(
-    modalOpen ||
-    activeElement?.matches("input, textarea, select")
-  );
-}
-
-async function checkWebsiteUpdate() {
-  try {
-    const latestVersion = await getPublishedVersion();
-
-    if (!latestVersion) return;
-
-    if (!loadedAppVersion) {
-      loadedAppVersion = latestVersion;
-      return;
-    }
-
-    if (latestVersion !== loadedAppVersion) {
-      if (isUserEditingData()) {
-        showToast("Versi baru tersedia. Refresh halaman setelah selesai mengisi data.");
-        return;
-      }
-
-      showToast("Versi baru tersedia. Memperbarui halaman...");
-      window.setTimeout(() => window.location.reload(), 1500);
-    }
-  } catch (error) {
-    console.warn("Pengecekan versi website gagal.", error);
-  }
-}
-
-checkWebsiteUpdate();
-window.setInterval(checkWebsiteUpdate, VERSION_CHECK_INTERVAL);
