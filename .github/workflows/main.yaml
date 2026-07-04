@@ -1,0 +1,3 @@
+- name: Create deployment version
+  run: |
+    echo "{\"version\":\"${{ github.sha }}\"}" > version.json
