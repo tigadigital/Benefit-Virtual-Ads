@@ -2881,3 +2881,56 @@ try {
   console.error("Inisialisasi tampilan aplikasi gagal.", error);
   showToast("Sebagian tampilan belum siap. Login tetap dapat digunakan.");
 }
+
+const APP_VERSION_URL = "version.json";
+const VERSION_CHECK_INTERVAL = 60_000;
+
+let loadedAppVersion = "";
+
+async function getPublishedVersion() {
+  const response = await fetch(`${APP_VERSION_URL}?t=${Date.now()}`, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) return "";
+  const data = await response.json();
+  return String(data.version || "");
+}
+
+function isUserEditingData() {
+  const modalOpen = document.querySelector(".modal-backdrop.open");
+  const activeElement = document.activeElement;
+
+  return Boolean(
+    modalOpen ||
+    activeElement?.matches("input, textarea, select")
+  );
+}
+
+async function checkWebsiteUpdate() {
+  try {
+    const latestVersion = await getPublishedVersion();
+
+    if (!latestVersion) return;
+
+    if (!loadedAppVersion) {
+      loadedAppVersion = latestVersion;
+      return;
+    }
+
+    if (latestVersion !== loadedAppVersion) {
+      if (isUserEditingData()) {
+        showToast("Versi baru tersedia. Refresh halaman setelah selesai mengisi data.");
+        return;
+      }
+
+      showToast("Versi baru tersedia. Memperbarui halaman...");
+      window.setTimeout(() => window.location.reload(), 1500);
+    }
+  } catch (error) {
+    console.warn("Pengecekan versi website gagal.", error);
+  }
+}
+
+checkWebsiteUpdate();
+window.setInterval(checkWebsiteUpdate, VERSION_CHECK_INTERVAL);
