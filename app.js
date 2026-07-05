@@ -344,9 +344,27 @@ function allSchedulesFinal(plots) {
 }
 
 function isZeroSpot(spot) { return Number(spot) === 0; }
-function spotMarkup(spot, extraClass = "") {
-  const classes = ["spot-value", isZeroSpot(spot) ? "spot-zero" : "", extraClass].filter(Boolean).join(" ");
+function isInactiveAiringStatus(status) {
+  return ["Tidak tayang", "Dibatalkan"].includes(String(status || "").trim());
+}
+function isCompletedAiringStatus(status) {
+  return ["On air", "Sudah tayang"].includes(String(status || "").trim());
+}
+function completedSpotSum(plots) {
+  return sum((plots || []).filter((plot) => isCompletedAiringStatus(plot.airingStatus)).map((plot) => plot.spot));
+}
+function isAlertSpot(spot, airingStatus = "") {
+  return isZeroSpot(spot) || isInactiveAiringStatus(airingStatus);
+}
+function spotClass(spot, airingStatus = "") {
+  return isAlertSpot(spot, airingStatus) ? "spot-zero" : "";
+}
+function spotMarkup(spot, extraClass = "", airingStatus = "") {
+  const classes = ["spot-value", spotClass(spot, airingStatus), isInactiveAiringStatus(airingStatus) ? "spot-status-alert" : "", extraClass].filter(Boolean).join(" ");
   return `<span class="${classes}">${Number(spot)} spot</span>`;
+}
+function plotSpotMarkup(plot, extraClass = "") {
+  return spotMarkup(plot?.spot, extraClass, plot?.airingStatus);
 }
 
 const UNIT_LOGOS = {
@@ -367,6 +385,73 @@ function unitLabelMarkup(unit, variant = "default") {
   }
 
   return `<span class="unit-label unit-label--${variant}" title="${safeUnit}" aria-label="${safeUnit}"><span class="unit-text-mark">${escapeHTML(value.charAt(0).toUpperCase())}</span><span class="unit-label-text">${safeUnit}</span></span>`;
+}
+
+function dashboardGreetingLabel() {
+  const hour = new Date().getHours();
+  if (hour >= 4 && hour < 11) return "pagi";
+  if (hour >= 11 && hour < 15) return "siang";
+  if (hour >= 15 && hour < 19) return "sore";
+  return "malam";
+}
+
+function currentTeamDisplayName() {
+  const email = String(currentFirebaseUser?.email || "").toLowerCase();
+  const account = TEAM_ACCOUNT_BY_EMAIL[email];
+  return account?.name || currentFirebaseUser?.displayName || "Tim VA";
+}
+
+function renderDashboardGreeting(todayPlots, upcomingPlots, attentionPlots) {
+  const greetingMeta = $("#dashboardGreetingMeta");
+  const greetingTitle = $("#dashboardGreetingTitle");
+  const reminderLead = $("#dashboardReminderLead");
+  const reminderList = $("#dashboardReminderList");
+  if (!greetingMeta || !greetingTitle || !reminderLead || !reminderList) return;
+
+  const operationDateLabel = formatDate(state.operationDate, { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+  const todaySpot = sum(todayPlots.map((plot) => plot.spot));
+  const todayBrandCount = unique(todayPlots.map((plot) => plot.brand)).length;
+  const alertSpotToday = todayPlots.filter((plot) => isAlertSpot(plot.spot, plot.airingStatus));
+  const openToday = todayPlots.filter((plot) => !isFinalAiringStatus(plot.airingStatus));
+
+  greetingMeta.textContent = `Tanggal operasional: ${operationDateLabel}`;
+  greetingTitle.textContent = `Selamat ${dashboardGreetingLabel()}, ${currentTeamDisplayName()}.`;
+  reminderLead.textContent = todayPlots.length
+    ? `Hari ini ada ${todayPlots.length} jadwal, ${todaySpot} spot, dan ${todayBrandCount} brand yang perlu dipantau.`
+    : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
+
+  const reminders = [
+    {
+      tone: attentionPlots.length ? "warning" : "safe",
+      title: "Update status tayang",
+      value: attentionPlots.length
+        ? `${attentionPlots.length} jadwal masih Planned dalam 3 hari.`
+        : "Tidak ada status Planned mendesak."
+    },
+    {
+      tone: openToday.length ? "info" : "safe",
+      title: "Pantau jadwal hari ini",
+      value: todayPlots.length
+        ? `${openToday.length} jadwal belum final dari ${todayPlots.length} jadwal.`
+        : "Tidak ada jadwal hari ini."
+    },
+    {
+      tone: alertSpotToday.length ? "danger" : "safe",
+      title: "Validasi note",
+      value: alertSpotToday.length
+        ? `${alertSpotToday.length} jadwal 0 spot, tidak tayang, atau dibatalkan perlu note yang jelas.`
+        : "Tidak ada spot merah hari ini."
+    },
+    {
+      tone: upcomingPlots.length ? "info" : "neutral",
+      title: "Cek 7 hari ke depan",
+      value: upcomingPlots.length
+        ? `${upcomingPlots.length} jadwal masuk timeline 7 hari.`
+        : "Belum ada jadwal dalam 7 hari."
+    }
+  ];
+
+  reminderList.innerHTML = reminders.map((item) => `<article class="hero-reminder-item is-${item.tone}"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.value)}</span></article>`).join("");
 }
 function batches() { return Object.values(state.plotings.reduce((acc, plot) => { (acc[plot.batchId] ||= []).push(plot); return acc; }, {})); }
 function getBatch(batchId) { return sortByDate(state.plotings.filter((plot) => plot.batchId === batchId)); }
@@ -510,7 +595,11 @@ function selectTeamAccount(accountId, moveFocus = false) {
 function setAuthGate(open, message = "") {
   const gate = $("#authGate");
   const gateMessage = $("#authGateMessage");
-  if (gate) gate.hidden = !open;
+  if (gate) {
+    gate.hidden = !open;
+    gate.classList.toggle("is-hidden", !open);
+    gate.setAttribute("aria-hidden", String(!open));
+  }
   if (gateMessage && message) gateMessage.textContent = message;
   updateAuthForm();
 }
@@ -717,7 +806,13 @@ function handleRealtimeDatabaseError(error) {
     ? "Rules Realtime Database menolak akun ini. Pastikan Rules sudah dipublish dan email login sama dengan Rules."
     : `Realtime Database tidak dapat diakses${code ? ` (${code})` : ""}. Periksa databaseURL dan koneksi internet.`;
   setFirebaseStatus("error", message);
-  if (isPermissionError) setAuthGate(true, detail);
+
+  // Jangan kembalikan pengguna ke layar login jika Firebase Auth sudah sukses.
+  // Kasus permission-denied biasanya berasal dari Realtime Database Rules, bukan
+  // password salah. Tetap tampilkan aplikasi agar user tidak terlihat stuck.
+  if (isPermissionError && !currentFirebaseUser) setAuthGate(true, detail);
+  else if (isPermissionError) setAuthGate(false);
+
   showToast(detail);
 }
 
@@ -741,6 +836,11 @@ async function signInWithPassword(event) {
     }
     await signInWithEmailAndPassword(firebaseAuth, account.email, password);
     if (passwordInput) passwordInput.value = "";
+    // Sembunyikan login segera setelah Auth berhasil. Snapshot Realtime Database
+    // bisa menyusul beberapa detik kemudian, tetapi pengguna tidak boleh macet
+    // di layar login saat kredensial sudah valid.
+    setAuthGate(false);
+    setFirebaseStatus("connecting", "Memuat data");
   } catch (error) {
     console.error("Login akun tim gagal.", error);
     const loginMessage = error?.code === "auth/invalid-credential"
@@ -867,6 +967,8 @@ function renderDashboard() {
   const todayPlots = sortByDate(state.plotings.filter((plot) => plot.planAiring === operationDate));
   const allBatches = batches();
   const upcoming = sortByDate(state.plotings.filter((plot) => plot.planAiring >= operationDate && plot.planAiring <= addDays(operationDate, 7)));
+  const attention = sortByDate(state.plotings.filter((plot) => plot.planAiring >= operationDate && plot.planAiring <= addDays(operationDate, 3) && plot.airingStatus === "Planned"));
+  renderDashboardGreeting(todayPlots, upcoming, attention);
   const kpis = [
     ["Jadwal aktif", state.plotings.filter((plot) => !["Dibatalkan", "Tidak tayang"].includes(plot.airingStatus)).length, "Total tanggal tayang"],
     ["Batch benefit", allBatches.length, "Benefit unik"],
@@ -874,17 +976,16 @@ function renderDashboard() {
     ["Jadwal 7 hari", upcoming.length, `${sum(upcoming.map((plot) => plot.spot))} total spot`]
   ];
   $("#kpiGrid").innerHTML = kpis.map(([label, value, note]) => `<article class="kpi-card"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
-  $("#dashboardTodayBody").innerHTML = todayPlots.length ? todayPlots.map((plot) => `<tr><td>${unitLabelMarkup(plot.unit, "table")}</td><td><span class="cell-title">${escapeHTML(plot.program)}</span><span class="cell-subtitle">${escapeHTML(plot.brand)} · ${escapeHTML(plot.pod)}</span></td><td>${escapeHTML(plot.format)}</td><td>${plot.spot}</td><td>${badge(plot.airingStatus)}</td></tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
+  $("#dashboardTodayBody").innerHTML = todayPlots.length ? todayPlots.map((plot) => `<tr><td>${unitLabelMarkup(plot.unit, "table")}</td><td><span class="cell-title">${escapeHTML(plot.program)}</span><span class="cell-subtitle">${escapeHTML(plot.brand)} · ${escapeHTML(plot.pod)}</span></td><td>${escapeHTML(plot.format)}</td><td>${plotSpotMarkup(plot)}</td><td>${badge(plot.airingStatus)}</td></tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
 
-  const attention = sortByDate(state.plotings.filter((plot) => plot.planAiring >= operationDate && plot.planAiring <= addDays(operationDate, 3) && plot.airingStatus === "Planned"));
-  $("#attentionList").innerHTML = attention.length ? attention.slice(0, 5).map((plot) => `<div class="attention-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</span></p></div><button class="row-action" data-edit-batch="${escapeHTML(plot.batchId)}" type="button">Edit</button></div>`).join("") : `<div class="attention-item"><div><strong>Tidak ada jadwal Planned dalam 3 hari.</strong><p>Silakan cek timeline jika ada perubahan dari sales.</p></div></div>`;
+  $("#attentionList").innerHTML = attention.length ? attention.slice(0, 5).map((plot) => `<div class="attention-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><button class="row-action" data-edit-batch="${escapeHTML(plot.batchId)}" type="button">Edit</button></div>`).join("") : `<div class="attention-item"><div><strong>Tidak ada jadwal Planned dalam 3 hari.</strong><p>Silakan cek timeline jika ada perubahan dari sales.</p></div></div>`;
 
   const recentBatches = allBatches.sort((a, b) => (b[0].updatedAt || "").localeCompare(a[0].updatedAt || "")).slice(0, 5);
   $("#recentBatchList").innerHTML = recentBatches.length ? recentBatches.map((batch) => {
     const first = batch[0];
     return `<div class="batch-item"><div><strong>${escapeHTML(first.brand)} · ${escapeHTML(first.advertiser)}</strong><p>${escapeHTML(first.batchId)} · PIC: ${escapeHTML(first.pic)} · ${batch.length} tanggal · ${sum(batch.map((plot) => plot.spot))} spot</p></div><button class="row-action" data-edit-batch="${escapeHTML(first.batchId)}" type="button">Edit</button></div>`;
   }).join("") : `<div class="batch-item"><div><strong>Belum ada batch</strong><p>Belum ada batch ploting pada sistem.</p></div></div>`;
-  $("#upcomingList").innerHTML = upcoming.length ? upcoming.slice(0, 6).map((plot) => `<div class="upcoming-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</span></p></div><span class="item-side">${escapeHTML(plot.format)}</span></div>`).join("") : `<div class="upcoming-item"><div><strong>Belum ada jadwal</strong><p>Tidak ada penayangan dalam 7 hari berikutnya.</p></div></div>`;
+  $("#upcomingList").innerHTML = upcoming.length ? upcoming.slice(0, 6).map((plot) => `<div class="upcoming-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><span class="item-side">${escapeHTML(plot.format)}</span></div>`).join("") : `<div class="upcoming-item"><div><strong>Belum ada jadwal</strong><p>Tidak ada penayangan dalam 7 hari berikutnya.</p></div></div>`;
 }
 
 function filteredPlotings() {
@@ -914,7 +1015,7 @@ function renderPlotings() {
     <td><span class="pic-chip">${escapeHTML(plot.pic)}</span></td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</span><span class="cell-subtitle">${escapeHTML(plot.version)}</span></td>
-    <td>${spotMarkup(plot.spot)}</td>
+    <td>${plotSpotMarkup(plot)}</td>
     <td>${escapeHTML(plot.gfx)}</td>
     <td>${badge(plot.airingStatus)}</td>
     <td><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur Jadwal</button></td>
@@ -954,12 +1055,12 @@ function renderDaily() {
   ];
   $("#dailyKpiGrid").innerHTML = metrics.map(([label, value, note]) => `<article class="mini-kpi"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
   const byUnit = plots.reduce((acc, plot) => { (acc[plot.unit] ||= []).push(plot); return acc; }, {});
-  $("#dailyTimelineList").innerHTML = Object.keys(byUnit).length ? Object.entries(byUnit).map(([unit, entries]) => `<div class="timeline-unit"><div class="timeline-unit-head"><strong>${unitLabelMarkup(unit, "timeline")}</strong><span>${entries.length} jadwal · ${sum(entries.map((plot) => plot.spot))} spot</span></div>${entries.map((plot) => `<div class="timeline-entry"><div><strong>${escapeHTML(plot.program)} · ${escapeHTML(plot.brand)}</strong><p>${escapeHTML(plot.advertiser)} · ${escapeHTML(plot.pod)}</p></div><div><strong>${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</strong><p>${escapeHTML(plot.version)}</p></div><div>${spotMarkup(plot.spot)}<p>spot</p></div><div>${escapeHTML(plot.gfx)}<p>${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</p></div><div>${badge(plot.airingStatus)}</div><div class="timeline-actions"><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur</button></div></div>`).join("")}</div>`).join("") : `<div class="empty-row">Belum ada ploting pada tanggal ini.</div>`;
+  $("#dailyTimelineList").innerHTML = Object.keys(byUnit).length ? Object.entries(byUnit).map(([unit, entries]) => `<div class="timeline-unit"><div class="timeline-unit-head"><strong>${unitLabelMarkup(unit, "timeline")}</strong><span>${entries.length} jadwal · ${sum(entries.map((plot) => plot.spot))} spot</span></div>${entries.map((plot) => `<div class="timeline-entry"><div><strong>${escapeHTML(plot.program)} · ${escapeHTML(plot.brand)}</strong><p>${escapeHTML(plot.advertiser)} · ${escapeHTML(plot.pod)}</p></div><div><strong>${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</strong><p>${escapeHTML(plot.version)}</p></div><div>${plotSpotMarkup(plot)}<p>spot</p></div><div>${escapeHTML(plot.gfx)}<p>${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</p></div><div>${badge(plot.airingStatus)}</div><div class="timeline-actions"><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur</button></div></div>`).join("")}</div>`).join("") : `<div class="empty-row">Belum ada ploting pada tanggal ini.</div>`;
 
   const days = Array.from({ length: 7 }, (_, index) => addDays(date, index));
   $("#sevenDayList").innerHTML = days.map((day) => {
     const daily = sortByDate(state.plotings.filter((plot) => plot.planAiring === day));
-    return `<div class="day-column"><h4>${formatDate(day, { weekday: "short", day: "2-digit", month: "short" })}<span>${daily.length} jadwal · ${sum(daily.map((plot) => plot.spot))} spot</span></h4>${daily.length ? daily.slice(0, 4).map((plot) => `<button class="day-event" data-edit-schedule="${escapeHTML(plot.id)}" type="button">${escapeHTML(plot.brand)}<small class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</small></button>`).join("") + (daily.length > 4 ? `<div class="calendar-more">+${daily.length - 4} lainnya</div>` : "") : `<span class="cell-subtitle">Tidak ada jadwal</span>`}</div>`;
+    return `<div class="day-column"><h4>${formatDate(day, { weekday: "short", day: "2-digit", month: "short" })}<span>${daily.length} jadwal · ${sum(daily.map((plot) => plot.spot))} spot</span></h4>${daily.length ? daily.slice(0, 4).map((plot) => `<button class="day-event" data-edit-schedule="${escapeHTML(plot.id)}" type="button">${escapeHTML(plot.brand)}<small class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</small></button>`).join("") + (daily.length > 4 ? `<div class="calendar-more">+${daily.length - 4} lainnya</div>` : "") : `<span class="cell-subtitle">Tidak ada jadwal</span>`}</div>`;
   }).join("");
 }
 
@@ -1383,8 +1484,8 @@ function renderFullTimeline() {
     const isComplete = allSchedulesFinal(dailyPlots);
     const dayState = `${isPast ? " full-calendar-past" : ""}${isComplete ? " full-calendar-complete" : ""}`;
     const eventMarkup = dailyPlots.length
-      ? `<div class="full-calendar-events full-calendar-events-all">${dailyPlots.map((plot) => `<button class="full-calendar-event full-calendar-event-grid ${isZeroSpot(plot.spot) ? "is-zero-spot" : ""}${isFinalAiringStatus(plot.airingStatus) ? " is-complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.brand} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">
-          <span class="full-calendar-event-top"><span class="full-calendar-unit">${unitLabelMarkup(plot.unit, "calendar")}</span><span class="full-calendar-spot ${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot}</span></span>
+      ? `<div class="full-calendar-events full-calendar-events-all">${dailyPlots.map((plot) => `<button class="full-calendar-event full-calendar-event-grid ${isAlertSpot(plot.spot, plot.airingStatus) ? "is-zero-spot" : ""}${isFinalAiringStatus(plot.airingStatus) ? " is-complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.brand} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">
+          <span class="full-calendar-event-top"><span class="full-calendar-unit">${unitLabelMarkup(plot.unit, "calendar")}</span><span class="full-calendar-spot ${spotClass(plot.spot, plot.airingStatus)}">${plot.spot}</span></span>
           <strong title="${escapeHTML(plot.brand)}">${escapeHTML(plot.brand)}</strong>
           <span class="full-calendar-program" title="${escapeHTML(plot.program)}">${escapeHTML(plot.program)}</span>
         </button>`).join("")}</div>`
@@ -1453,7 +1554,7 @@ function renderBrand() {
     <td>${formatDate(plot.planAiring)}</td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</span><span class="cell-subtitle">${escapeHTML(plot.version)}</span></td>
-    <td>${spotMarkup(plot.spot)}</td>
+    <td>${plotSpotMarkup(plot)}</td>
     <td>${escapeHTML(plot.gfx)}</td>
     <td>${badge(plot.airingStatus)}</td>
     <td class="schedule-note-cell">${plot.scheduleNote ? escapeHTML(plot.scheduleNote) : `<span class="empty-note">-</span>`}</td>
@@ -1483,7 +1584,7 @@ function renderCalendar(month, plots) {
       isPast ? "calendar-day--past" : "",
       isComplete ? "calendar-day--complete" : ""
     ].filter(Boolean).join(" ");
-    cells.push(`<div class="${dayClasses}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event ${isFinalAiringStatus(plot.airingStatus) ? "calendar-event--complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">${unitLabelMarkup(plot.unit, "calendar")}<span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="${isZeroSpot(plot.spot) ? "spot-zero" : ""}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
+    cells.push(`<div class="${dayClasses}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event ${isFinalAiringStatus(plot.airingStatus) ? "calendar-event--complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">${unitLabelMarkup(plot.unit, "calendar")}<span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
   }
   const remainder = cells.length % 7;
   if (remainder) for (let index = remainder; index < 7; index += 1) cells.push(`<div class="calendar-day muted-day"></div>`);
@@ -1500,7 +1601,7 @@ function renderPicReport() {
   const periodLabel = formatQuarter(selectedYear, selectedQuarter);
 
   const metrics = [
-    ["Batch benefit", uniqueBatchCount(selectedPlots), "Benefit unik"],
+    ["Spot tayang", completedSpotSum(selectedPlots), "Status On air/Sudah tayang"],
     ["Jadwal tayang", selectedPlots.length, "Tanggal terploting"],
     ["Total spot", sum(selectedPlots.map((plot) => plot.spot)), "Akumulasi spot"],
     ["Brand ditangani", unique(selectedPlots.map((plot) => plot.brand)).length, "Brand pada periode ini"],
@@ -1514,7 +1615,7 @@ function renderPicReport() {
     const plots = periodPlots.filter((plot) => plot.pic === pic);
     return `<tr class="${pic === selectedPic ? "selected-pic-row" : ""}">
       <td><span class="pic-chip">${escapeHTML(pic)}</span></td>
-      <td>${uniqueBatchCount(plots)}</td>
+      <td><strong>${completedSpotSum(plots)}</strong></td>
       <td>${plots.length}</td>
       <td><strong>${sum(plots.map((plot) => plot.spot))}</strong></td>
       <td>${unique(plots.map((plot) => plot.brand)).length}</td>
@@ -1539,7 +1640,7 @@ function renderPicReport() {
     <td><span class="cell-title">${escapeHTML(plot.brand)}</span><span class="cell-subtitle">${escapeHTML(plot.advertiser)}</span></td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</span><span class="cell-subtitle">${escapeHTML(plot.version)}</span></td>
-    <td>${spotMarkup(plot.spot)}</td>
+    <td>${plotSpotMarkup(plot)}</td>
     <td>${badge(plot.airingStatus)}</td>
     <td><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur Jadwal</button></td>
   </tr>`).join("") : `<tr><td colspan="8" class="empty-row">Tidak ada jadwal untuk PIC dan periode ini.</td></tr>`;
@@ -1589,6 +1690,7 @@ function updatePageTitle() {
   const [eyebrow, title] = labels[activeView] || labels.dashboard;
   $("#pageEyebrow").textContent = eyebrow;
   $("#pageTitle").textContent = title;
+  document.title = `${title} | VA Benefit Ploting`;
 }
 
 function setView(view) {
@@ -1600,6 +1702,26 @@ function setView(view) {
   renderActiveView();
   updatePageTitle();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function resetFullTimelineFilters() {
+  filters.full = { year: currentYear(), month: currentMonth(), unit: "", brand: "" };
+  populateSelects();
+  renderFullTimeline();
+}
+
+function resetBrandTimelineFilters() {
+  const brands = sortText(unique(state.plotings.map((plot) => plot.brand)));
+  filters.brand = {
+    brand: brands[0] || "",
+    year: currentYear(),
+    month: currentMonth(),
+    unit: "",
+    program: "",
+    format: ""
+  };
+  populateSelects();
+  renderBrand();
 }
 
 function scheduleDatesInForm() {
@@ -1730,6 +1852,7 @@ function applyMultiDatePickerDates() {
     return;
   }
 
+  removeEmptyStarterScheduleRows();
   dates.forEach((date) => addScheduleRow(date, 1, "Planned", ""));
   multiDatePickerState.selectedDates = new Set();
   multiDatePickerState.open = false;
@@ -1740,17 +1863,37 @@ function applyMultiDatePickerDates() {
 function buildScheduleRow(date = state.operationDate, spot = 1, airingStatus = "Planned", scheduleNote = "") {
   // Spot 0 valid, misalnya ketika jadwal tetap dicatat tetapi tidak jadi tayang.
   const normalizedSpot = Number.isInteger(Number(spot)) && Number(spot) >= 0 ? Number(spot) : 1;
+  const spotWarningClass = isAlertSpot(normalizedSpot, airingStatus) ? " zero-spot-input" : "";
   return `<tr class="schedule-row">
     <td><input class="schedule-date-input" type="date" value="${escapeHTML(date)}" required /></td>
-    <td><input class="schedule-spot-input" type="number" min="0" max="999" step="1" value="${normalizedSpot}" required /></td>
+    <td><input class="schedule-spot-input${spotWarningClass}" type="number" min="0" max="999" step="1" value="${normalizedSpot}" required /></td>
     <td><select class="schedule-status-input" required>${optionMarkup(AIRING_STATUSES, "Pilih status", airingStatus || "Planned")}</select></td>
     <td><input class="schedule-note-input" maxlength="220" value="${escapeHTML(scheduleNote)}" placeholder="Note khusus tanggal ini" /></td>
     <td><button class="remove-schedule" data-remove-schedule type="button">Hapus</button></td>
   </tr>`;
 }
 
+function syncScheduleRowVisualState(row) {
+  const spotInput = row?.querySelector(".schedule-spot-input");
+  const statusInput = row?.querySelector(".schedule-status-input");
+  if (!spotInput || !statusInput) return;
+  spotInput.classList.toggle("zero-spot-input", isAlertSpot(Number(spotInput.value), statusInput.value));
+}
+
+function removeEmptyStarterScheduleRows() {
+  $$("#scheduleRows .schedule-row").forEach((row) => {
+    const date = row.querySelector(".schedule-date-input")?.value || "";
+    const spot = Number(row.querySelector(".schedule-spot-input")?.value || 1);
+    const status = row.querySelector(".schedule-status-input")?.value || "Planned";
+    const note = row.querySelector(".schedule-note-input")?.value.trim() || "";
+    if (!date && spot === 1 && status === "Planned" && !note) row.remove();
+  });
+}
+
 function addScheduleRow(date = state.operationDate, spot = 1, airingStatus = "Planned", scheduleNote = "") {
-  $("#scheduleRows").insertAdjacentHTML("beforeend", buildScheduleRow(date, spot, airingStatus, scheduleNote));
+  const rows = $("#scheduleRows");
+  rows.insertAdjacentHTML("beforeend", buildScheduleRow(date, spot, airingStatus, scheduleNote));
+  syncScheduleRowVisualState(rows.lastElementChild);
   updateScheduleRemoveButtons();
 }
 
@@ -1798,7 +1941,7 @@ function openPlotModal(batchId = "") {
     batch.forEach((plot) => addScheduleRow(plot.planAiring, plot.spot, plot.airingStatus, plot.scheduleNote));
     $("#plotModalTitle").textContent = `Edit Batch ${batchId}`;
   } else {
-    addScheduleRow(state.operationDate, 1, "Planned", "");
+    addScheduleRow("", 1, "Planned", "");
     $("#plotModalTitle").textContent = "Tambah Ploting Benefit";
   }
   updateScheduleRemoveButtons();
@@ -1936,6 +2079,14 @@ function syncScheduleSlideControls() {
   }
 
   $("#scheduleSlideSpotPreview").textContent = `${Number.isInteger(spot) && spot > 0 ? spot : 0} spot`;
+  syncScheduleEditSpotWarning();
+}
+
+function syncScheduleEditSpotWarning() {
+  const spotInput = $("#scheduleEditSpotInput");
+  const statusInput = $("#scheduleEditStatusInput");
+  if (!spotInput || !statusInput) return;
+  spotInput.classList.toggle("zero-spot-input", isAlertSpot(Number(spotInput.value), statusInput.value));
 }
 
 function openScheduleModal(scheduleId) {
@@ -1945,7 +2096,7 @@ function openScheduleModal(scheduleId) {
   $("#scheduleEditContext").innerHTML = `<strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><span>${escapeHTML(plot.batchId)} · ${escapeHTML(plot.unit)} · ${escapeHTML(plot.pod)}</span>`;
   $("#scheduleEditDateInput").value = plot.planAiring;
   $("#scheduleEditSpotInput").value = plot.spot;
-  $("#scheduleEditSpotInput").classList.toggle("zero-spot-input", isZeroSpot(plot.spot));
+  $("#scheduleEditSpotInput").classList.toggle("zero-spot-input", isAlertSpot(plot.spot, plot.airingStatus));
   setSelectOptions("#scheduleEditStatusInput", AIRING_STATUSES, "Pilih Status Tayang", plot.airingStatus || "Planned");
   $("#scheduleEditNoteInput").value = plot.scheduleNote || "";
   $("#scheduleSlideToggle").checked = false;
@@ -2276,17 +2427,17 @@ function prepareBrandDetailLogosForSnapshot(table) {
     const bounds = image.getBoundingClientRect();
     const width = Math.max(1, Math.round(bounds.width || 40));
     const height = Math.max(1, Math.round(bounds.height || 17));
+    const label = image.alt || image.title || image.closest(".unit-label")?.getAttribute("aria-label") || "Unit";
     let settled = false;
 
     const finish = () => {
       if (settled) return;
       settled = true;
 
-      // html2canvas tidak selalu menerapkan object-fit pada elemen img dengan
-      // konsisten. Logo diraster lebih dulu ke kanvas dengan rasio asli agar
-      // proporsi setiap logo, terutama MNCTV, tetap terjaga pada snapshot.
+      // html2canvas kadang gagal membaca object-fit dan gambar yang tidak lolos CORS.
+      // Logo diraster menjadi data URI. Jika gagal, snapshot tetap jalan dengan teks unit.
       if (!image.naturalWidth || !image.naturalHeight) {
-        resolve({ src: "", width, height });
+        resolve({ src: "", width, height, label });
         return;
       }
 
@@ -2297,7 +2448,7 @@ function prepareBrandDetailLogosForSnapshot(table) {
         canvas.height = height * density;
         const context = canvas.getContext("2d");
         if (!context) {
-          resolve({ src: "", width, height });
+          resolve({ src: "", width, height, label });
           return;
         }
 
@@ -2316,10 +2467,10 @@ function prepareBrandDetailLogosForSnapshot(table) {
           drawWidth,
           drawHeight
         );
-        resolve({ src: canvas.toDataURL("image/png"), width, height });
+        resolve({ src: canvas.toDataURL("image/png"), width, height, label });
       } catch (error) {
         console.warn("Logo Unit On Air tidak dapat dipersiapkan untuk snapshot.", error);
-        resolve({ src: "", width, height });
+        resolve({ src: "", width, height, label });
       }
     };
 
@@ -2332,6 +2483,26 @@ function prepareBrandDetailLogosForSnapshot(table) {
     image.addEventListener("error", finish, { once: true });
     window.setTimeout(finish, 1200);
   })));
+}
+
+function snapshotFileName() {
+  const brand = filters.brand.brand || "semua-brand";
+  const period = monthKeyFromPeriod(filters.brand.year, filters.brand.month) || monthKey(state.operationDate);
+  return `${safeFileName(`snapshot-detail-brand-${brand}-${period}`)}.png`;
+}
+
+async function copyImageBlobToClipboard(imageBlob) {
+  if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    throw new Error("Clipboard gambar tidak didukung oleh browser ini.");
+  }
+
+  await navigator.clipboard.write([
+    new ClipboardItem({ "image/png": imageBlob })
+  ]);
+}
+
+function fallbackDownloadSnapshot(imageBlob) {
+  downloadBlob(imageBlob, snapshotFileName());
 }
 
 async function snapshotBrandDetailTable() {
@@ -2354,20 +2525,24 @@ async function snapshotBrandDetailTable() {
     const html2canvas = await loadHtml2Canvas();
     if (document.fonts?.ready) await document.fonts.ready;
 
-    const captureWidth = Math.ceil(Math.max(table.scrollWidth, table.getBoundingClientRect().width));
-    const captureHeight = Math.ceil(Math.max(table.scrollHeight, table.getBoundingClientRect().height));
+    const tableBounds = table.getBoundingClientRect();
+    const captureWidth = Math.ceil(Math.max(table.scrollWidth, tableBounds.width));
+    const captureHeight = Math.ceil(Math.max(table.scrollHeight, tableBounds.height));
     const snapshotLogos = await prepareBrandDetailLogosForSnapshot(table);
     const canvas = await html2canvas(table, {
       backgroundColor: "#ffffff",
-      scale: 2,
+      scale: Math.min(2, window.devicePixelRatio || 2),
       useCORS: true,
       allowTaint: false,
       logging: false,
       width: captureWidth,
       height: captureHeight,
       windowWidth: captureWidth,
-      windowHeight: captureHeight,
+      windowHeight: Math.max(captureHeight, window.innerHeight || captureHeight),
+      scrollX: 0,
+      scrollY: 0,
       onclone: (clonedDocument) => {
+        clonedDocument.body.classList.add("snapshot-capture-mode");
         const clonedTable = clonedDocument.querySelector("#brandDetailTable");
         if (!clonedTable) return;
 
@@ -2384,17 +2559,29 @@ async function snapshotBrandDetailTable() {
 
         clonedTable.style.width = `${captureWidth}px`;
         clonedTable.style.minWidth = `${captureWidth}px`;
-        clonedTable.querySelectorAll("img").forEach((image) => { image.loading = "eager"; });
+        clonedTable.style.maxWidth = "none";
+        clonedTable.style.borderCollapse = "collapse";
+        clonedTable.querySelectorAll("th").forEach((cell) => {
+          cell.style.position = "static";
+          cell.style.top = "auto";
+        });
 
         clonedTable.querySelectorAll(".unit-logo").forEach((image, index) => {
-          const logo = snapshotLogos[index];
-          if (!logo) return;
-          if (logo.src) image.src = logo.src;
-          image.style.width = `${logo.width}px`;
-          image.style.height = `${logo.height}px`;
-          image.style.maxWidth = `${logo.width}px`;
-          image.style.objectFit = "fill";
-          image.style.objectPosition = "center";
+          const logo = snapshotLogos[index] || {};
+          if (logo.src) {
+            image.src = logo.src;
+            image.style.width = `${logo.width || 40}px`;
+            image.style.height = `${logo.height || 17}px`;
+            image.style.maxWidth = `${logo.width || 40}px`;
+            image.style.objectFit = "fill";
+            image.style.objectPosition = "center";
+            return;
+          }
+
+          const replacement = clonedDocument.createElement("span");
+          replacement.className = "snapshot-unit-text";
+          replacement.textContent = logo.label || image.alt || image.title || "Unit";
+          image.replaceWith(replacement);
         });
       }
     });
@@ -2402,26 +2589,18 @@ async function snapshotBrandDetailTable() {
     const imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!imageBlob) throw new Error("Gambar PNG tidak berhasil dibuat.");
 
-    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-      throw new Error("Clipboard gambar tidak didukung oleh browser ini.");
-    }
-
     if (button) button.textContent = "Menyalin...";
-    await navigator.clipboard.write([
-      new ClipboardItem({ "image/png": imageBlob })
-    ]);
-    showToast("Snapshot Detail Brand sudah disalin. Tempel langsung di WhatsApp.");
-  } catch (error) {
-    console.error("Gagal menyalin snapshot Detail Brand.", error);
-    const copyPermissionDenied = String(error?.name || "") === "NotAllowedError";
-    const unsupportedClipboard = String(error?.message || "").includes("Clipboard gambar tidak didukung");
-    if (copyPermissionDenied) {
-      showToast("Izin clipboard belum tersedia. Izinkan akses clipboard lalu coba lagi.");
-    } else if (unsupportedClipboard) {
-      showToast("Browser ini belum mendukung copy gambar. Gunakan Chrome atau Edge versi terbaru.");
-    } else {
-      showToast("Snapshot belum berhasil disalin. Periksa koneksi lalu coba lagi.");
+    try {
+      await copyImageBlobToClipboard(imageBlob);
+      showToast("Snapshot Detail Brand sudah disalin. Tempel langsung di WhatsApp.");
+    } catch (copyError) {
+      console.warn("Clipboard gambar tidak tersedia. Snapshot disimpan sebagai PNG.", copyError);
+      fallbackDownloadSnapshot(imageBlob);
+      showToast("Clipboard gambar tidak tersedia. Snapshot PNG sudah diunduh.");
     }
+  } catch (error) {
+    console.error("Gagal membuat snapshot Detail Brand.", error);
+    showToast("Snapshot belum berhasil dibuat. Periksa data brand dan coba lagi.");
   } finally {
     if (button) {
       button.disabled = false;
@@ -2838,7 +3017,7 @@ function getPicExportData() {
   const picNames = sortText(unique(periodPlots.map((plot) => plot.pic)));
   const summaryRows = picNames.map((pic, index) => {
     const plots = periodPlots.filter((plot) => plot.pic === pic);
-    return [index + 1, pic, uniqueBatchCount(plots), plots.length, sum(plots.map((plot) => plot.spot)), unique(plots.map((plot) => plot.brand)).join(", "), unique(plots.map((plot) => plot.program)).join(", "), unique(plots.map((plot) => plot.unit)).join(", ")];
+    return [index + 1, pic, completedSpotSum(plots), plots.length, sum(plots.map((plot) => plot.spot)), unique(plots.map((plot) => plot.brand)).join(", "), unique(plots.map((plot) => plot.program)).join(", "), unique(plots.map((plot) => plot.unit)).join(", ")];
   });
   return { selectedPic, selectedYear, selectedQuarter, periodPlots, selectedPlots, summaryRows };
 }
@@ -2852,10 +3031,10 @@ function exportPicExcel() {
   exportExcelWorkbook(`report-pic-${selectedPic || "semua-pic"}-${periodFile}-${state.operationDate}`, [
     {
       name: "Ringkasan PIC",
-      headers: ["No", "PIC Ploting", "Batch", "Jadwal", "Total Spot", "Brand Ditangani", "Program Ditangani", "Unit On Air"],
+      headers: ["No", "PIC Ploting", "Spot On Air/Sudah Tayang", "Jadwal", "Total Spot", "Brand Ditangani", "Program Ditangani", "Unit On Air"],
       rows: summaryRows,
       numericColumns: [0, 2, 3, 4],
-      widths: [42, 110, 55, 60, 70, 220, 250, 120]
+      widths: [42, 110, 120, 60, 70, 220, 250, 120]
     },
     {
       name: "Detail PIC",
@@ -2890,7 +3069,7 @@ function bindEvents() {
   $("#plotForm").addEventListener("submit", savePlotFromForm);
   $("#scheduleEditForm").addEventListener("submit", saveScheduleFromForm);
   $("#scheduleEditStatusInput").addEventListener("change", syncScheduleSlideControls);
-  $("#scheduleEditSpotInput").addEventListener("input", (event) => { event.target.classList.toggle("zero-spot-input", Number(event.target.value) === 0); syncScheduleSlideControls(); });
+  $("#scheduleEditSpotInput").addEventListener("input", syncScheduleSlideControls);
   $("#scheduleEditDateInput").addEventListener("change", syncScheduleSlideControls);
   $("#scheduleSlideToggle").addEventListener("change", syncScheduleSlideControls);
   $("#masterForm").addEventListener("submit", addMasterValue);
@@ -2915,6 +3094,16 @@ function bindEvents() {
     renderWaGenerator();
   });
 
+  document.addEventListener("change", (event) => {
+    const scheduleStatus = event.target.closest(".schedule-status-input");
+    if (scheduleStatus) syncScheduleRowVisualState(scheduleStatus.closest(".schedule-row"));
+  });
+
+  document.addEventListener("input", (event) => {
+    const scheduleSpot = event.target.closest(".schedule-spot-input");
+    if (scheduleSpot) syncScheduleRowVisualState(scheduleSpot.closest(".schedule-row"));
+  });
+
   $("#operationDate").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#dailyDateInput").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#plotSearchInput").addEventListener("input", (event) => { filters.plot.query = event.target.value; filters.plot.page = 1; renderPlotings(); });
@@ -2933,8 +3122,10 @@ function bindEvents() {
   $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
   bindBrandSearchFilter("#fullTimelineBrandSelect", "full");
+  $("#fullTimelineResetButton")?.addEventListener("click", resetFullTimelineFilters);
   $("#snapshotBrandDetailButton").addEventListener("click", snapshotBrandDetailTable);
   bindBrandSearchFilter("#brandSelect", "brand");
+  $("#brandFilterResetButton")?.addEventListener("click", resetBrandTimelineFilters);
   $("#brandYearSelect").addEventListener("change", (event) => { filters.brand.year = event.target.value; populateSelects(); renderBrand(); });
   $("#brandMonthSelect").addEventListener("change", (event) => { filters.brand.month = event.target.value; populateSelects(); renderBrand(); });
   $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; populateSelects(); renderBrand(); });

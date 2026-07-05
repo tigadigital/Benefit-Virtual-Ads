@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Sistem ploting benefit Virtual Ad dengan timeline dan master data." />
+  <meta name="description" content="Dashboard operasional untuk ploting benefit Virtual Ad, timeline penayangan, generator WhatsApp, report PIC, dan master data realtime." />
+  <meta name="theme-color" content="#0b5a64" />
   <title>VA Benefit Ploting</title>
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
@@ -12,8 +13,8 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=__BUILD_VERSION__" />
-  <link rel="stylesheet" href="style.css?v=43" />
+  <link rel="modulepreload" href="app.js?v=55" />
+  <link rel="stylesheet" href="style.css?v=55" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -56,9 +57,9 @@
       <div class="sidebar-unit-logos" aria-label="Logo Unit On Air">
         <p>UNIT ON AIR</p>
         <div>
-          <img src="assets/rcti.webp" alt="RCTI" decoding="async" />
-          <img src="assets/mnctv.webp" alt="MNCTV" decoding="async" />
-          <img src="assets/gtv.webp" alt="GTV" decoding="async" />
+          <img src="assets/rcti.webp" alt="RCTI" decoding="async" loading="lazy" />
+          <img src="assets/mnctv.webp" alt="MNCTV" decoding="async" loading="lazy" />
+          <img src="assets/gtv.webp" alt="GTV" decoding="async" loading="lazy" />
         </div>
       </div>
 
@@ -92,11 +93,32 @@
             <span>TANGGAL OPERASIONAL</span>
             <input id="operationDate" type="date" aria-label="Tanggal operasional" />
           </label>
-<button class="primary-button" id="primaryActionButton" type="button"><b>＋</b> Tambah Ploting</button>
+          <button class="primary-button" id="primaryActionButton" type="button" aria-label="Tambah ploting baru"><b>＋</b> Tambah Ploting</button>
         </div>
       </header>
 
       <section class="view active" data-view-panel="dashboard" id="dashboardView">
+
+        <div class="dashboard-hero dashboard-hero--upgrade">
+          <div class="hero-copy hero-greeting-block">
+            <p class="section-label hero-label" id="dashboardGreetingMeta">CONTROL CENTER</p>
+            <h3 id="dashboardGreetingTitle">Selamat datang.</h3>
+            <p class="hero-reminder-lead" id="dashboardReminderLead">Memuat pengingat operasional hari ini.</p>
+            <div class="hero-reminder-list" id="dashboardReminderList" aria-label="Pengingat operasional"></div>
+          </div>
+          <div class="hero-quick-steps" aria-label="Akses cepat dashboard">
+            <button class="hero-quick-step hero-quick-action" data-go-view="plotings" type="button">
+              <span class="hero-icon" aria-hidden="true">▤</span>
+              <span><strong>Master Ploting</strong><small>Kelola jadwal dan benefit</small></span>
+              <i aria-hidden="true">›</i>
+            </button>
+            <button class="hero-quick-step hero-quick-action" data-go-view="fulltimeline" type="button">
+              <span class="hero-icon" aria-hidden="true">▥</span>
+              <span><strong>Kalender Full</strong><small>Lihat timeline bulanan</small></span>
+              <i aria-hidden="true">›</i>
+            </button>
+          </div>
+        </div>
 
         <div class="kpi-grid" id="kpiGrid"></div>
 
@@ -227,11 +249,7 @@
 
       <section class="view" data-view-panel="fulltimeline" id="fullTimelineView">
         <div class="section-intro panel timeline-header section-intro--filters section-intro--full-timeline">
-          <div class="section-intro-copy">
-            <p class="section-label">TIMELINE BULANAN</p>
-            <h3>Kalender Timeline Full</h3>
-            <p>Lihat Unit On Air, brand, program, dan spot dalam satu kalender bulanan.</p>
-          </div>
+          <div class="section-intro-copy"></div>
           <div class="filter-panel" aria-label="Filter Kalender Timeline Full">
             <div class="filter-panel-heading">
               <span>Filter kalender</span>
@@ -245,6 +263,7 @@
                 <input id="fullTimelineBrandSelect" class="brand-search-input" type="search" list="fullTimelineBrandOptions" autocomplete="off" placeholder="Cari atau pilih brand" aria-label="Cari atau pilih brand untuk Kalender Full" />
                 <datalist id="fullTimelineBrandOptions"></datalist>
               </label>
+              <button class="secondary-button filter-reset-button" id="fullTimelineResetButton" type="button">Reset filter</button>
             </div>
           </div>
         </div>
@@ -280,7 +299,7 @@
 
       <section class="view" data-view-panel="brand" id="brandView">
         <div class="section-intro panel timeline-header section-intro--filters section-intro--brand">
-          <div class="section-intro-copy"><p class="section-label">TIMELINE BRAND</p><h3>Kalender penayangan per brand</h3><p>Filter brand, periode, unit, program, dan format VA.</p></div>
+          <div class="section-intro-copy"></div>
           <div class="filter-panel" aria-label="Filter Timeline Brand">
             <div class="filter-panel-heading">
               <span>Filter timeline</span>
@@ -296,6 +315,7 @@
               <label>Unit On Air<select id="brandUnitSelect"></select></label>
               <label>Program<select id="brandProgramSelect"></select></label>
               <label>Format VA<select id="brandFormatSelect"></select></label>
+              <button class="secondary-button filter-reset-button" id="brandFilterResetButton" type="button">Reset filter</button>
             </div>
           </div>
         </div>
@@ -332,10 +352,10 @@
         <div class="pic-report-kpis" id="picReportKpis"></div>
         <div class="pic-report-layout">
           <article class="panel pic-overview-panel">
-            <div class="panel-heading"><div><p class="section-label">RINGKASAN TIM</p><h3>Beban ploting per PIC</h3></div><span class="muted-caption" id="picOverviewCaption"></span></div>
+            <div class="panel-heading"><div><p class="section-label">RINGKASAN TIM</p><h3>Capaian spot per PIC</h3></div><span class="muted-caption" id="picOverviewCaption"></span></div>
             <div class="table-wrap compact-table-wrap">
               <table class="data-table pic-overview-table">
-                <thead><tr><th>PIC</th><th>Batch</th><th>Jadwal</th><th>Spot</th><th>Brand</th><th>Program</th><th></th></tr></thead>
+                <thead><tr><th>PIC</th><th>Spot Tayang</th><th>Jadwal</th><th>Total Spot</th><th>Brand</th><th>Program</th><th></th></tr></thead>
                 <tbody id="picOverviewBody"></tbody>
               </table>
             </div>
@@ -539,8 +559,8 @@
   </section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="update-check.js?v=__BUILD_VERSION__" defer></script>
-  <script type="module" src="app.js?v=__BUILD_VERSION__"></script>
+  <script src="update-check.js?v=55" defer></script>
+  <script type="module" src="app.js?v=55"></script>
 </body>
 </html>
 
