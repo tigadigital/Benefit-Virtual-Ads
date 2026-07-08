@@ -1,5 +1,5 @@
 /*
-  VA Benefit Ploting v0.49
+  VA Benefit Ploting v0.50
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
   - Firebase Authentication Email/Password membatasi akses tiga akun internal.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
@@ -123,6 +123,7 @@ let firebasePendingSync = false;
 let remoteMasters = null;
 let remotePlotings = new Map();
 let firebaseInitialHydrationComplete = false;
+let firebaseNeedsNameNormalizationSync = false;
 let legacyImportSession = null;
 let sheetJsLoadingPromise = null;
 let html2CanvasLoadingPromise = null;
@@ -218,25 +219,11 @@ function formatProgramName(value) {
   return normalizeWhitespace(value).toLocaleUpperCase("id-ID");
 }
 
-function formatBrandToken(token) {
-  const value = String(token || "");
-  if (!value) return "";
-
-  // Pertahankan singkatan umum dan brand berbasis angka, misalnya MNC, KFC, 3M, atau A&W.
-  const upper = value.toLocaleUpperCase("id-ID");
-  const hasLetter = /\p{L}/u.test(value);
-  const isShortAcronym = hasLetter && value === upper && value.length <= 4;
-  const hasDigit = /\d/.test(value);
-  if (isShortAcronym || hasDigit) return value;
-
-  return value.toLocaleLowerCase("id-ID").replace(/(^|[-/'’])(\p{L})/gu, (match, prefix, letter) => `${prefix}${letter.toLocaleUpperCase("id-ID")}`);
-}
-
 function formatBrandName(value) {
   return normalizeWhitespace(value)
-    .split(" ")
-    .map(formatBrandToken)
-    .join(" ");
+    .toLocaleLowerCase("id-ID")
+    .replace(/(^|[\s\-/&+.()])(\p{L})/gu, (match, prefix, letter) => `${prefix}${letter.toLocaleUpperCase("id-ID")}`)
+    .replace(/(\d)(\p{L})/gu, (match, digit, letter) => `${digit}${letter.toLocaleUpperCase("id-ID")}`);
 }
 
 function normalizePlotings(plotings) {
@@ -267,6 +254,9 @@ function loadState() {
 function saveState() {
   // Tanggal operasional tidak disimpan agar pembukaan berikutnya kembali ke hari ini.
   // Cache data hanya dipakai untuk mempercepat tampilan awal akun yang sama.
+  // Brand disimpan dalam Title Case, sedangkan Program disimpan dalam huruf kapital penuh.
+  state.plotings = sortByDate(normalizePlotings(state.plotings));
+  state.masters = normalizeMasters(state.masters, state.plotings);
   persistRealtimeCache();
   queueRealtimeDatabaseSync();
 }
@@ -322,6 +312,25 @@ function setSelectPairs(selector, pairs, placeholder, selectedValue = "") {
   element.innerHTML = optionPairsMarkup(pairs, placeholder, selectedValue);
 }
 function addDays(dateValue, days) { const date = new Date(`${dateValue}T00:00:00`); date.setDate(date.getDate() + days); return date.toISOString().slice(0, 10); }
+function offsetIsoDate(dateValue, days) {
+  const [year, month, day] = String(dateValue || "").split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return dateValue;
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+function weekRangeFromDate(dateValue) {
+  const [year, month, day] = String(dateValue || "").split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return { start: dateValue, end: dateValue };
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const dayIndex = (date.getUTCDay() + 6) % 7;
+  const start = offsetIsoDate(dateValue, -dayIndex);
+  const end = offsetIsoDate(start, 6);
+  return { start, end };
+}
+function isSameWeekDate(dateValue, referenceDate) {
+  const range = weekRangeFromDate(referenceDate);
+  return dateValue >= range.start && dateValue <= range.end;
+}
 function sortByDate(items) { return [...items].sort((a, b) => a.planAiring.localeCompare(b.planAiring) || a.id.localeCompare(b.id)); }
 function badgeClass(status) {
   const text = String(status || "").toLowerCase();
@@ -349,6 +358,9 @@ function isInactiveAiringStatus(status) {
 }
 function isCompletedAiringStatus(status) {
   return ["On air", "Sudah tayang"].includes(String(status || "").trim());
+}
+function isPendingAiringStatus(status) {
+  return !isCompletedAiringStatus(status) && !isInactiveAiringStatus(status);
 }
 function completedSpotSum(plots) {
   return sum((plots || []).filter((plot) => isCompletedAiringStatus(plot.airingStatus)).map((plot) => plot.spot));
@@ -444,10 +456,10 @@ function renderDashboardGreeting(todayPlots, upcomingPlots, attentionPlots) {
     },
     {
       tone: upcomingPlots.length ? "info" : "neutral",
-      title: "Cek 7 hari ke depan",
+      title: "Cek minggu ini",
       value: upcomingPlots.length
-        ? `${upcomingPlots.length} jadwal masuk timeline 7 hari.`
-        : "Belum ada jadwal dalam 7 hari."
+        ? `${upcomingPlots.length} jadwal masuk timeline minggu ini.`
+        : "Belum ada jadwal minggu ini."
     }
   ];
 
@@ -742,6 +754,7 @@ function stopRealtimeDatabaseListeners() {
   remoteMasters = null;
   remotePlotings = new Map();
   firebaseInitialHydrationComplete = false;
+  firebaseNeedsNameNormalizationSync = false;
 }
 
 function subscribeToRealtimeDatabase() {
@@ -768,10 +781,15 @@ function subscribeToRealtimeDatabase() {
 
   unsubscribeSchedules = onValue(realtimeSchedulesRef, (snapshot) => {
     const rawSchedules = snapshot.exists() ? snapshot.val() : {};
-    const plotings = normalizePlotings(Object.entries(rawSchedules || {}).map(([id, record]) => ({ id, ...(record || {}) })));
+    const rawPlotings = Object.entries(rawSchedules || {}).map(([id, record]) => ({ id, ...(record || {}) }));
+    const plotings = normalizePlotings(rawPlotings);
+    firebaseNeedsNameNormalizationSync = rawPlotings.some((rawPlot, index) => {
+      const normalizedPlot = plotings[index];
+      return rawPlot.brand !== normalizedPlot.brand || rawPlot.program !== normalizedPlot.program;
+    });
     state.plotings = sortByDate(plotings);
     state.masters = normalizeMasters(state.masters, state.plotings);
-    remotePlotings = new Map(state.plotings.map((plot) => [plot.id, firebaseRecord(plot)]));
+    remotePlotings = new Map(rawPlotings.map((plot) => [plot.id, firebaseRecord(plot)]));
     firebaseSchedulesLoaded = true;
 
     if (realtimeDatabaseReady()) finishRealtimeHydration();
@@ -789,9 +807,11 @@ function finishRealtimeHydration() {
   // dirender ketika menu tersebut dibuka, sehingga halaman awal lebih cepat.
   renderAll();
 
-  // Jangan tulis ulang seluruh database setelah snapshot awal selesai.
-  // Perubahan baru dari pengguna tetap disimpan melalui saveState().
-  if (!wasInitialLoad) return;
+  // Sinkronkan saat data lama atau data dari client lama hanya berbeda kapitalisasi Brand atau Program.
+  if (firebaseNeedsNameNormalizationSync) {
+    firebaseNeedsNameNormalizationSync = false;
+    queueRealtimeDatabaseSync();
+  }
 }
 
 function handleRealtimeDatabaseError(error) {
@@ -964,16 +984,19 @@ function populateSelects() {
 
 function renderDashboard() {
   const operationDate = state.operationDate;
+  const currentWeek = weekRangeFromDate(operationDate);
   const todayPlots = sortByDate(state.plotings.filter((plot) => plot.planAiring === operationDate));
   const allBatches = batches();
-  const upcoming = sortByDate(state.plotings.filter((plot) => plot.planAiring >= operationDate && plot.planAiring <= addDays(operationDate, 7)));
+  const allCompletedSpot = completedSpotSum(state.plotings);
+  const pendingSpot = sum(state.plotings.filter((plot) => isPendingAiringStatus(plot.airingStatus)).map((plot) => plot.spot));
+  const upcoming = sortByDate(state.plotings.filter((plot) => isSameWeekDate(plot.planAiring, operationDate)));
   const attention = sortByDate(state.plotings.filter((plot) => plot.planAiring >= operationDate && plot.planAiring <= addDays(operationDate, 3) && plot.airingStatus === "Planned"));
   renderDashboardGreeting(todayPlots, upcoming, attention);
   const kpis = [
-    ["Jadwal aktif", state.plotings.filter((plot) => !["Dibatalkan", "Tidak tayang"].includes(plot.airingStatus)).length, "Total tanggal tayang"],
-    ["Batch benefit", allBatches.length, "Benefit unik"],
+    ["Spot sudah tayang", allCompletedSpot, "Status On air/Sudah tayang"],
+    ["Spot belum tayang", pendingSpot, "Planned dan Siap tayang"],
     ["Spot hari ini", sum(todayPlots.map((plot) => plot.spot)), `${todayPlots.length} jadwal pada ${formatDate(operationDate, { day: "2-digit", month: "short" })}`],
-    ["Jadwal 7 hari", upcoming.length, `${sum(upcoming.map((plot) => plot.spot))} total spot`]
+    ["Jadwal minggu ini", upcoming.length, `${sum(upcoming.map((plot) => plot.spot))} spot · ${formatDate(currentWeek.start, { day: "2-digit", month: "short" })} s/d ${formatDate(currentWeek.end, { day: "2-digit", month: "short" })}`]
   ];
   $("#kpiGrid").innerHTML = kpis.map(([label, value, note]) => `<article class="kpi-card"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
   $("#dashboardTodayBody").innerHTML = todayPlots.length ? todayPlots.map((plot) => `<tr><td>${unitLabelMarkup(plot.unit, "table")}</td><td><span class="cell-title">${escapeHTML(plot.program)}</span><span class="cell-subtitle">${escapeHTML(plot.brand)} · ${escapeHTML(plot.pod)}</span></td><td>${escapeHTML(plot.format)}</td><td>${plotSpotMarkup(plot)}</td><td>${badge(plot.airingStatus)}</td></tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
@@ -985,7 +1008,7 @@ function renderDashboard() {
     const first = batch[0];
     return `<div class="batch-item"><div><strong>${escapeHTML(first.brand)} · ${escapeHTML(first.advertiser)}</strong><p>${escapeHTML(first.batchId)} · PIC: ${escapeHTML(first.pic)} · ${batch.length} tanggal · ${sum(batch.map((plot) => plot.spot))} spot</p></div><button class="row-action" data-edit-batch="${escapeHTML(first.batchId)}" type="button">Edit</button></div>`;
   }).join("") : `<div class="batch-item"><div><strong>Belum ada batch</strong><p>Belum ada batch ploting pada sistem.</p></div></div>`;
-  $("#upcomingList").innerHTML = upcoming.length ? upcoming.slice(0, 6).map((plot) => `<div class="upcoming-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><span class="item-side">${escapeHTML(plot.format)}</span></div>`).join("") : `<div class="upcoming-item"><div><strong>Belum ada jadwal</strong><p>Tidak ada penayangan dalam 7 hari berikutnya.</p></div></div>`;
+  $("#upcomingList").innerHTML = upcoming.length ? upcoming.slice(0, 6).map((plot) => `<div class="upcoming-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><span class="item-side">${escapeHTML(plot.format)}</span></div>`).join("") : `<div class="upcoming-item"><div><strong>Belum ada jadwal</strong><p>Tidak ada penayangan pada minggu ini.</p></div></div>`;
 }
 
 function filteredPlotings() {
@@ -1967,7 +1990,15 @@ function readScheduleRows() {
   }));
 }
 
+function normalizePlotNameInputs() {
+  const brandInput = $("#plotBrandInput");
+  const programInput = $("#plotProgramInput");
+  if (brandInput) brandInput.value = formatBrandName(brandInput.value);
+  if (programInput) programInput.value = formatProgramName(programInput.value);
+}
+
 function formPayload() {
+  normalizePlotNameInputs();
   return {
     advertiser: $("#plotAdvertiserInput").value,
     brand: formatBrandName($("#plotBrandInput").value),
@@ -3067,6 +3098,8 @@ function bindEvents() {
   $("#legacyImportFutureStatusInput").addEventListener("change", () => { if (legacyImportSession) previewLegacyExcel(legacyImportSession.file); });
   $("#legacyImportConfirmButton").addEventListener("click", commitLegacyImport);
   $("#plotForm").addEventListener("submit", savePlotFromForm);
+  $("#plotBrandInput").addEventListener("blur", normalizePlotNameInputs);
+  $("#plotProgramInput").addEventListener("blur", normalizePlotNameInputs);
   $("#scheduleEditForm").addEventListener("submit", saveScheduleFromForm);
   $("#scheduleEditStatusInput").addEventListener("change", syncScheduleSlideControls);
   $("#scheduleEditSpotInput").addEventListener("input", syncScheduleSlideControls);
