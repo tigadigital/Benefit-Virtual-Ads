@@ -7088,3 +7088,512 @@ body {
     height: 19px !important;
   }
 }
+
+
+/* v0.66: Batch Ploting view */
+.batch-table {
+  min-width: 1180px;
+}
+
+.batch-table th,
+.batch-table td {
+  vertical-align: middle;
+}
+
+.toolbar-batches {
+  grid-template-columns: minmax(270px, 2fr) repeat(3, minmax(140px, 1fr)) auto;
+}
+
+.batch-table .badge + .badge {
+  margin-left: 5px;
+}
+
+@media (max-width: 1320px) {
+  .toolbar-batches {
+    grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(130px, 1fr));
+  }
+
+  .toolbar-batches .secondary-button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 680px) {
+  .toolbar-batches {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-batches .secondary-button {
+    width: 100%;
+    grid-column: auto;
+  }
+}
+
+
+/* v0.68: sidebar grouped submenu */
+.nav-list--grouped {
+  display: grid;
+  gap: 5px;
+}
+
+.nav-group {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+}
+
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #d7ebe7;
+  background: transparent;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 850;
+  line-height: 1.18;
+  cursor: pointer;
+  transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.nav-group-toggle span {
+  display: inline-grid;
+  width: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #d2e9e4;
+  font-size: 15px;
+}
+
+.nav-group-toggle em {
+  min-width: 0;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-group-toggle b {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-left: auto;
+  border-radius: 999px;
+  color: #d9ece7;
+  background: rgba(255,255,255,.10);
+  font-size: 11px;
+  line-height: 1;
+  transition: transform .16s ease, background .16s ease;
+}
+
+.nav-group-toggle:hover {
+  color: #fff;
+  background: rgba(255,255,255,.10);
+}
+
+.nav-group.is-open > .nav-group-toggle,
+.nav-group.is-active > .nav-group-toggle {
+  color: #fff;
+  background: rgba(255,255,255,.09);
+  border-color: rgba(255,255,255,.10);
+}
+
+.nav-group.is-open > .nav-group-toggle b {
+  transform: rotate(180deg);
+}
+
+.nav-submenu {
+  display: grid;
+  gap: 4px;
+  margin-left: 18px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255,255,255,.13);
+}
+
+.nav-submenu[hidden] {
+  display: none !important;
+}
+
+.nav-subitem {
+  min-height: 34px;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.nav-subitem span {
+  width: 16px;
+  font-size: 14px;
+}
+
+.nav-item--standalone {
+  margin-bottom: 1px;
+}
+
+@media (min-width: 921px) {
+  .nav-list--grouped .nav-item {
+    min-height: 38px;
+  }
+
+  .nav-list--grouped .nav-subitem {
+    min-height: 33px;
+    font-size: 11.8px;
+  }
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .nav-group-toggle {
+    min-height: 37px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .nav-submenu {
+    margin-left: 16px;
+    padding-left: 7px;
+  }
+
+  .nav-subitem {
+    min-height: 32px;
+    padding: 7px 8px;
+    font-size: 11.5px;
+  }
+}
+
+@media (max-width: 920px) {
+  .nav-list.nav-list--grouped {
+    display: grid;
+    overflow: visible;
+    gap: 6px;
+  }
+
+  .nav-list--grouped .nav-item {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .nav-group-toggle {
+    min-height: 36px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .nav-submenu {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+
+/* v0.69: sidebar readability and custom line icons */
+@media (min-width: 921px) {
+  .app-shell {
+    grid-template-columns: 236px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    width: 236px;
+  }
+
+  .nav-list--grouped {
+    gap: 7px;
+  }
+
+  .nav-item,
+  .nav-item--standalone {
+    min-height: 43px;
+    gap: 11px;
+    padding: 9px 11px;
+    font-size: 14px;
+    line-height: 1.22;
+  }
+
+  .nav-group-toggle {
+    min-height: 43px;
+    gap: 11px;
+    padding: 9px 11px;
+    font-size: 14px;
+    line-height: 1.22;
+  }
+
+  .nav-submenu {
+    gap: 5px;
+    margin-left: 22px;
+    padding-left: 9px;
+  }
+
+  .nav-subitem {
+    min-height: 38px;
+    gap: 9px;
+    padding: 8px 9px;
+    font-size: 13.2px;
+    line-height: 1.2;
+  }
+}
+
+.nav-icon {
+  display: inline-grid !important;
+  width: 21px !important;
+  height: 21px !important;
+  flex: 0 0 21px;
+  place-items: center;
+  color: currentColor;
+}
+
+.nav-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-item .nav-icon,
+.nav-group-toggle .nav-icon {
+  color: #dceeea;
+  opacity: .96;
+}
+
+.nav-item.active .nav-icon {
+  color: #12363b;
+  opacity: 1;
+}
+
+.nav-group.is-open > .nav-group-toggle .nav-icon,
+.nav-group.is-active > .nav-group-toggle .nav-icon {
+  color: #f7fff8;
+  opacity: 1;
+}
+
+.nav-subitem .nav-icon {
+  width: 18px !important;
+  height: 18px !important;
+  flex-basis: 18px;
+  opacity: .9;
+}
+
+.nav-subitem .nav-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2;
+}
+
+.nav-group-toggle b {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+}
+
+.nav-item em,
+.nav-group-toggle em {
+  font-weight: 900;
+}
+
+.nav-subitem em {
+  font-weight: 850;
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .app-shell {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    width: 230px;
+  }
+
+  .nav-item,
+  .nav-item--standalone,
+  .nav-group-toggle {
+    min-height: 41px;
+    padding: 8px 10px;
+    font-size: 13.5px;
+  }
+
+  .nav-subitem {
+    min-height: 36px;
+    font-size: 12.8px;
+  }
+
+  .nav-icon {
+    width: 20px !important;
+    height: 20px !important;
+    flex-basis: 20px;
+  }
+
+  .nav-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .app-shell {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    width: 224px;
+  }
+
+  .nav-item,
+  .nav-item--standalone,
+  .nav-group-toggle {
+    font-size: 13.2px;
+  }
+
+  .nav-subitem {
+    font-size: 12.4px;
+  }
+}
+
+@media (max-width: 920px) {
+  .nav-item,
+  .nav-group-toggle {
+    min-height: 40px;
+    font-size: 13px;
+  }
+
+  .nav-subitem {
+    min-height: 36px;
+    font-size: 12.5px;
+  }
+
+  .nav-icon {
+    width: 20px !important;
+    height: 20px !important;
+    flex-basis: 20px;
+  }
+
+  .nav-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+}
+
+
+/* v0.71: jadwal tayang modal tidak terpotong dan tidak perlu scroll kanan di desktop */
+@media (min-width: 761px) {
+  .schedule-table-wrap {
+    width: 100%;
+    overflow-x: visible;
+  }
+
+  .schedule-table {
+    width: 100%;
+    min-width: 0 !important;
+    table-layout: fixed;
+  }
+
+  .schedule-table th,
+  .schedule-table td {
+    min-width: 0 !important;
+    padding: 10px 8px;
+  }
+
+  .schedule-table th:nth-child(1),
+  .schedule-table td:nth-child(1) {
+    width: 20%;
+  }
+
+  .schedule-table th:nth-child(2),
+  .schedule-table td:nth-child(2) {
+    width: 15%;
+  }
+
+  .schedule-table th:nth-child(3),
+  .schedule-table td:nth-child(3) {
+    width: 20%;
+  }
+
+  .schedule-table th:nth-child(4),
+  .schedule-table td:nth-child(4) {
+    width: auto;
+  }
+
+  .schedule-table th:nth-child(5),
+  .schedule-table td:nth-child(5) {
+    width: 58px;
+    text-align: right;
+  }
+
+  .schedule-table input,
+  .schedule-table select,
+  .schedule-table textarea {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .schedule-note-input {
+    min-width: 0 !important;
+  }
+
+  .remove-schedule {
+    width: 46px;
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 34px;
+    padding: 6px 7px;
+    overflow: hidden;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .schedule-table th,
+  .schedule-table td {
+    padding: 8px 6px;
+  }
+
+  .schedule-table th {
+    font-size: 8.5px;
+    letter-spacing: .28px;
+  }
+
+  .schedule-table input,
+  .schedule-table select {
+    min-height: 34px;
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+
+  .remove-schedule {
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    padding: 6px;
+    font-size: 10px;
+  }
+}
+
+/* Di layar kecil tetap boleh scroll, tapi tombol hapus tidak terpotong. */
+@media (max-width: 760px) {
+  .schedule-table {
+    min-width: 720px !important;
+  }
+
+  .schedule-table th:nth-child(5),
+  .schedule-table td:nth-child(5) {
+    min-width: 74px;
+  }
+
+  .remove-schedule {
+    white-space: nowrap;
+  }
+}

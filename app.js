@@ -103,6 +103,7 @@ let state = loadState();
 let activeView = "dashboard";
 let filters = {
   plot: { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 },
+  batch: { query: "", year: "", month: "", unit: "", page: 1, perPage: 20 },
   full: { year: "", month: "", unit: "", brand: "" },
   brand: { brand: "", year: "", month: "", unit: "", program: "", format: "" },
   pic: { pic: "", year: "", quarter: "" }
@@ -332,6 +333,20 @@ function isSameWeekDate(dateValue, referenceDate) {
   return dateValue >= range.start && dateValue <= range.end;
 }
 function sortByDate(items) { return [...items].sort((a, b) => a.planAiring.localeCompare(b.planAiring) || a.id.localeCompare(b.id)); }
+function unitSortIndex(unit) {
+  const units = Array.isArray(state?.masters?.units) && state.masters.units.length ? state.masters.units : defaultMasters.units;
+  const index = units.indexOf(unit);
+  return index === -1 ? units.length : index;
+}
+function sortByUnitThenProgram(items) {
+  return [...items].sort((a, b) =>
+    unitSortIndex(a.unit) - unitSortIndex(b.unit) ||
+    String(a.unit || "").localeCompare(String(b.unit || ""), "id") ||
+    String(a.program || "").localeCompare(String(b.program || ""), "id") ||
+    String(a.brand || "").localeCompare(String(b.brand || ""), "id") ||
+    String(a.id || "").localeCompare(String(b.id || ""), "id")
+  );
+}
 function badgeClass(status) {
   const text = String(status || "").toLowerCase();
   if (text.includes("siap")) return "ready";
@@ -950,12 +965,18 @@ function populateSelects() {
   if (filters.full.brand && !brands.includes(filters.full.brand)) filters.full.brand = "";
 
   if (filters.plot.year && !years.includes(filters.plot.year)) filters.plot.year = "";
+  if (filters.batch.year && !years.includes(filters.batch.year)) filters.batch.year = "";
+  if (filters.batch.unit && !state.masters.units.includes(filters.batch.unit)) filters.batch.unit = "";
 
   setSelectPairs("#plotYearFilter", yearPairs, "Semua tahun", filters.plot.year);
   setSelectPairs("#plotMonthFilter", MONTH_OPTIONS, "Semua bulan", filters.plot.month);
   setSelectOptions("#plotUnitFilter", state.masters.units, "Semua unit", filters.plot.unit);
   setSelectOptions("#plotGfxFilter", state.masters.gfx, "Semua materi GFX", filters.plot.gfx);
   setSelectOptions("#plotAiringFilter", AIRING_STATUSES, "Semua status tayang", filters.plot.airing);
+
+  setSelectPairs("#batchYearFilter", yearPairs, "Semua tahun", filters.batch.year);
+  setSelectPairs("#batchMonthFilter", MONTH_OPTIONS, "Semua bulan", filters.batch.month);
+  setSelectOptions("#batchUnitFilter", state.masters.units, "Semua unit", filters.batch.unit);
 
   setSearchableBrandInput("#brandSelect", "#brandSelectOptions", brands, filters.brand.brand);
   setSelectPairs("#brandYearSelect", yearPairs, "Pilih tahun", filters.brand.year);
@@ -985,7 +1006,7 @@ function populateSelects() {
 function renderDashboard() {
   const operationDate = state.operationDate;
   const currentWeek = weekRangeFromDate(operationDate);
-  const todayPlots = sortByDate(state.plotings.filter((plot) => plot.planAiring === operationDate));
+  const todayPlots = sortByUnitThenProgram(state.plotings.filter((plot) => plot.planAiring === operationDate));
   const allBatches = batches();
   const allCompletedSpot = completedSpotSum(state.plotings);
   const pendingSpot = sum(state.plotings.filter((plot) => isPendingAiringStatus(plot.airingStatus)).map((plot) => plot.spot));
@@ -1060,6 +1081,107 @@ function renderPlotings() {
          <button class="pagination-nav" data-plot-page="${filters.plot.page - 1}" type="button" ${filters.plot.page === 1 ? "disabled" : ""}>← Sebelumnya</button>
          <div class="pagination-pages">${pagesMarkup}</div>
          <button class="pagination-nav" data-plot-page="${filters.plot.page + 1}" type="button" ${filters.plot.page === totalPages ? "disabled" : ""}>Berikutnya →</button>
+       </div>`
+    : "";
+}
+
+
+function batchPeriod(batch) {
+  const dates = sortText(batch.map((plot) => plot.planAiring).filter(Boolean));
+  const start = dates[0] || "";
+  const end = dates[dates.length - 1] || "";
+  return { start, end };
+}
+
+function batchStatusMarkup(batch) {
+  const statuses = AIRING_STATUSES.filter((status) => batch.some((plot) => plot.airingStatus === status));
+  const visible = statuses.slice(0, 2).map((status) => badge(status)).join(" ");
+  const extra = statuses.length > 2 ? `<span class="cell-subtitle">+${statuses.length - 2} status lain</span>` : "";
+  return (visible || badge("Planned")) + extra;
+}
+
+function filteredBatches() {
+  const filter = filters.batch;
+  const query = filter.query.trim().toLowerCase();
+  return batches()
+    .map((batch) => sortByDate(batch))
+    .filter((batch) => {
+      const haystack = batch.map((plot) => [
+        plot.batchId, plot.advertiser, plot.brand, plot.sales, plot.pic, plot.unit,
+        plot.program, plot.pod, plot.version, plot.format, plot.duration, plot.gfx,
+        plot.batchNote, plot.scheduleNote
+      ].join(" ")).join(" ").toLowerCase();
+      const matchesQuery = !query || haystack.includes(query);
+      const matchesPeriod = batch.some((plot) => matchesYearMonth(plot.planAiring, filter.year, filter.month));
+      const matchesUnit = !filter.unit || batch.some((plot) => plot.unit === filter.unit);
+      return matchesQuery && matchesPeriod && matchesUnit;
+    })
+    .sort((a, b) => {
+      const firstA = a[0] || {};
+      const firstB = b[0] || {};
+      const periodA = batchPeriod(a);
+      const periodB = batchPeriod(b);
+      return String(firstB.updatedAt || "").localeCompare(String(firstA.updatedAt || "")) ||
+        String(periodB.end || "").localeCompare(String(periodA.end || "")) ||
+        String(firstA.brand || "").localeCompare(String(firstB.brand || ""), "id") ||
+        String(firstA.batchId || "").localeCompare(String(firstB.batchId || ""), "id");
+    });
+}
+
+function renderBatches() {
+  const allBatches = filteredBatches();
+  const perPage = Number(filters.batch.perPage) || 20;
+  const totalPages = Math.max(1, Math.ceil(allBatches.length / perPage));
+  filters.batch.page = Math.min(Math.max(1, Number(filters.batch.page) || 1), totalPages);
+  const startIndex = (filters.batch.page - 1) * perPage;
+  const pageBatches = allBatches.slice(startIndex, startIndex + perPage);
+  const from = allBatches.length ? startIndex + 1 : 0;
+  const to = Math.min(startIndex + pageBatches.length, allBatches.length);
+
+  const resultCount = $("#batchResultCount");
+  const tableBody = $("#batchTableBody");
+  const pagination = $("#batchPagination");
+  if (!resultCount || !tableBody || !pagination) return;
+
+  resultCount.textContent = allBatches.length;
+  tableBody.innerHTML = pageBatches.length ? pageBatches.map((batch) => {
+    const first = batch[0];
+    const period = batchPeriod(batch);
+    const totalSpot = sum(batch.map((plot) => plot.spot));
+    const uniquePrograms = unique(batch.map((plot) => plot.program));
+    const uniqueUnits = unique(batch.map((plot) => plot.unit));
+    const periodLabel = period.start === period.end
+      ? formatDate(period.start)
+      : `${formatDate(period.start)} s/d ${formatDate(period.end)}`;
+    return `<tr>
+      <td><span class="cell-title">${escapeHTML(first.batchId)}</span><span class="cell-subtitle">${batch.length} jadwal</span></td>
+      <td><span class="cell-title">${escapeHTML(first.brand)}</span><span class="cell-subtitle">${escapeHTML(first.advertiser)}</span></td>
+      <td><span class="cell-title cell-title-unit">${unitLabelMarkup(first.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(first.program)}</span></span><span class="cell-subtitle">${uniqueUnits.length > 1 ? `${uniqueUnits.length} unit` : escapeHTML(first.pod)} · ${uniquePrograms.length} program</span></td>
+      <td><span class="pic-chip">${escapeHTML(first.pic)}</span><span class="cell-subtitle">Sales: ${escapeHTML(first.sales)}</span></td>
+      <td><span class="cell-title">${escapeHTML(periodLabel)}</span><span class="cell-subtitle">Update: ${formatDate(String(first.updatedAt || "").slice(0, 10))}</span></td>
+      <td>${batch.length}</td>
+      <td>${spotMarkup(totalSpot)}</td>
+      <td>${batchStatusMarkup(batch)}</td>
+      <td><button class="row-action" data-edit-batch="${escapeHTML(first.batchId)}" type="button">Edit Batch</button></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="9" class="empty-row">Tidak ada batch yang sesuai dengan filter.</td></tr>`;
+
+  const pageButtons = Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => {
+    const current = filters.batch.page;
+    return totalPages <= 7 || page === 1 || page === totalPages || Math.abs(page - current) <= 1;
+  });
+  const pagesMarkup = pageButtons.map((page, index) => {
+    const previous = pageButtons[index - 1];
+    const gap = previous && page - previous > 1 ? `<span class="pagination-gap">…</span>` : "";
+    return `${gap}<button class="pagination-page ${page === filters.batch.page ? "is-active" : ""}" data-batch-page="${page}" type="button" aria-label="Halaman ${page}" ${page === filters.batch.page ? 'aria-current="page"' : ""}>${page}</button>`;
+  }).join("");
+
+  pagination.innerHTML = allBatches.length
+    ? `<span class="pagination-summary">Menampilkan ${from}–${to} dari ${allBatches.length} batch</span>
+       <div class="pagination-actions">
+         <button class="pagination-nav" data-batch-page="${filters.batch.page - 1}" type="button" ${filters.batch.page === 1 ? "disabled" : ""}>← Sebelumnya</button>
+         <div class="pagination-pages">${pagesMarkup}</div>
+         <button class="pagination-nav" data-batch-page="${filters.batch.page + 1}" type="button" ${filters.batch.page === totalPages ? "disabled" : ""}>Berikutnya →</button>
        </div>`
     : "";
 }
@@ -1679,6 +1801,7 @@ function renderActiveView() {
   const renderers = {
     dashboard: renderDashboard,
     plotings: renderPlotings,
+    batches: renderBatches,
     daily: renderDaily,
     wagenerator: renderWaGenerator,
     fulltimeline: renderFullTimeline,
@@ -1696,12 +1819,14 @@ function renderAll() {
   $("#operationDate").value = state.operationDate;
   renderActiveView();
   updatePageTitle();
+  updateNavState(activeView);
 }
 
 function updatePageTitle() {
   const labels = {
     dashboard: ["OPERATIONS DASHBOARD", "VA Benefit Ploting"],
     plotings: ["2026 VA DIGITAL", "Master Ploting VA"],
+    batches: ["KELOLA BATCH", "Batch Ploting"],
     daily: ["PIVOT MASTER", "Timeline Harian"],
     wagenerator: ["SHARE OPERASIONAL", "Generator Pesan WhatsApp"],
     fulltimeline: ["TIMELINE BULANAN", "Kalender Full"],
@@ -1716,9 +1841,27 @@ function updatePageTitle() {
   document.title = `${title} | VA Benefit Ploting`;
 }
 
+function setNavGroupOpen(group, open) {
+  if (!group) return;
+  const toggle = group.querySelector(".nav-group-toggle");
+  const submenu = group.querySelector(".nav-submenu");
+  group.classList.toggle("is-open", open);
+  if (toggle) toggle.setAttribute("aria-expanded", String(open));
+  if (submenu) submenu.hidden = !open;
+}
+
+function updateNavState(view = activeView) {
+  $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  $$(".nav-group").forEach((group) => {
+    const hasActiveChild = Array.from(group.querySelectorAll(".nav-item")).some((button) => button.dataset.view === view);
+    group.classList.toggle("is-active", hasActiveChild);
+    if (hasActiveChild) setNavGroupOpen(group, true);
+  });
+}
+
 function setView(view) {
   activeView = view;
-  $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  updateNavState(view);
   $$("[data-view-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === view));
   // Render halaman saat dibuka, bukan pada saat aplikasi pertama kali dimuat.
   populateSelects();
@@ -3089,8 +3232,15 @@ function bindAuthenticationEvents() {
 
 function bindEvents() {
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+  $$(".nav-group-toggle").forEach((button) => {
+    button.addEventListener("click", () => {
+      const group = button.closest(".nav-group");
+      setNavGroupOpen(group, !group?.classList.contains("is-open"));
+    });
+  });
   $("#primaryActionButton").addEventListener("click", () => openPlotModal());
   $("#addPlotInlineButton").addEventListener("click", () => openPlotModal());
+  $("#addBatchInlineButton")?.addEventListener("click", () => openPlotModal());
   $("#legacyImportButton").addEventListener("click", openLegacyImportModal);
   $("#legacyImportFile").addEventListener("change", (event) => previewLegacyExcel(event.target.files?.[0]));
   $("#legacyImportPicInput").addEventListener("change", () => { if (legacyImportSession) previewLegacyExcel(legacyImportSession.file); });
@@ -3151,6 +3301,16 @@ function bindEvents() {
     populateSelects();
     renderPlotings();
   });
+  $("#batchSearchInput")?.addEventListener("input", (event) => { filters.batch.query = event.target.value; filters.batch.page = 1; renderBatches(); });
+  $("#batchYearFilter")?.addEventListener("change", (event) => { filters.batch.year = event.target.value; filters.batch.page = 1; renderBatches(); });
+  $("#batchMonthFilter")?.addEventListener("change", (event) => { filters.batch.month = event.target.value; filters.batch.page = 1; renderBatches(); });
+  $("#batchUnitFilter")?.addEventListener("change", (event) => { filters.batch.unit = event.target.value; filters.batch.page = 1; renderBatches(); });
+  $("#resetBatchFilterButton")?.addEventListener("click", () => {
+    filters.batch = { query: "", year: "", month: "", unit: "", page: 1, perPage: 20 };
+    $("#batchSearchInput").value = "";
+    populateSelects();
+    renderBatches();
+  });
   $("#fullTimelineYearSelect").addEventListener("change", (event) => { filters.full.year = event.target.value; renderFullTimeline(); });
   $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
   $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
@@ -3209,6 +3369,15 @@ function bindEvents() {
       if (Number.isFinite(nextPage)) {
         filters.plot.page = nextPage;
         renderPlotings();
+      }
+      return;
+    }
+    const batchPage = event.target.closest("[data-batch-page]");
+    if (batchPage && !batchPage.disabled) {
+      const nextPage = Number(batchPage.dataset.batchPage);
+      if (Number.isFinite(nextPage)) {
+        filters.batch.page = nextPage;
+        renderBatches();
       }
       return;
     }

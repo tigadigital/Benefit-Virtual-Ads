@@ -13,8 +13,8 @@
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
   <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=60" />
-  <link rel="stylesheet" href="style.css?v=59" />
+  <link rel="modulepreload" href="app.js?v=71" />
+  <link rel="stylesheet" href="style.css?v=71" />
 </head>
 <body>
   <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
@@ -63,16 +63,49 @@
         </div>
       </div>
 
-      <nav class="nav-list" aria-label="Navigasi utama">
-        <button class="nav-item active" data-view="dashboard" type="button"><span>⌂</span><em>Dashboard</em></button>
-        <button class="nav-item" data-view="plotings" type="button"><span>▤</span><em>Master Ploting VA</em></button>
-        <button class="nav-item" data-view="daily" type="button"><span>◷</span><em>Timeline Harian</em></button>
-        <button class="nav-item" data-view="wagenerator" type="button"><span>◉</span><em>Generator WhatsApp</em></button>
-        <button class="nav-item" data-view="fulltimeline" type="button"><span>▥</span><em>Kalender Full</em></button>
-        <button class="nav-item" data-view="brand" type="button"><span>▦</span><em>Timeline Brand</em></button>
-        <button class="nav-item" data-view="picreport" type="button"><span>◫</span><em>Report PIC</em></button>
-        <button class="nav-item" data-view="masters" type="button"><span>⚙</span><em>Master Data</em></button>
-        <button class="nav-item" data-view="guide" type="button"><span>i</span><em>Alur Kerja</em></button>
+      <nav class="nav-list nav-list--grouped" aria-label="Navigasi utama">
+        <button class="nav-item nav-item--standalone active" data-view="dashboard" type="button"><span class="nav-icon nav-icon-dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5v7A1.5 1.5 0 0 1 18.5 20H15v-5.2H9V20H5.5A1.5 1.5 0 0 1 4 18.5v-7Z"/><path d="M9 20v-5.2h6V20"/></svg></span><em>Dashboard</em></button>
+
+        <div class="nav-group is-open" data-nav-group="operations">
+          <button class="nav-group-toggle" type="button" aria-expanded="true">
+            <span class="nav-icon nav-icon-operations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v4H5z"/><path d="M5 11h14v8H5z"/><path d="M8 14h5"/><path d="M8 16.5h8"/></svg></span><em>Operasional</em><b aria-hidden="true">⌄</b>
+          </button>
+          <div class="nav-submenu">
+            <button class="nav-item nav-subitem" data-view="plotings" type="button"><span class="nav-icon nav-icon-master"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v14H6z"/><path d="M9 9h6"/><path d="M9 12h6"/><path d="M9 15h4"/></svg></span><em>Master Ploting VA</em></button>
+            <button class="nav-item nav-subitem" data-view="batches" type="button"><span class="nav-icon nav-icon-batch"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5 12 4l7 3.5-7 3.5-7-3.5Z"/><path d="M5 11.5 12 15l7-3.5"/><path d="M5 15.5 12 19l7-3.5"/></svg></span><em>Batch Ploting</em></button>
+            <button class="nav-item nav-subitem" data-view="daily" type="button"><span class="nav-icon nav-icon-daily"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v14H6z"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M6 9h12"/><path d="M10 13h4"/></svg></span><em>Timeline Harian</em></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-nav-group="timelines">
+          <button class="nav-group-toggle" type="button" aria-expanded="false">
+            <span class="nav-icon nav-icon-timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14"/><path d="M17 5v14"/><path d="M7 8h10"/><path d="M7 16h10"/><circle cx="7" cy="8" r="2"/><circle cx="17" cy="16" r="2"/></svg></span><em>Timeline</em><b aria-hidden="true">⌄</b>
+          </button>
+          <div class="nav-submenu" hidden>
+            <button class="nav-item nav-subitem" data-view="fulltimeline" type="button"><span class="nav-icon nav-icon-fullcalendar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v13H5z"/><path d="M8 4v4"/><path d="M16 4v4"/><path d="M5 10h14"/><path d="M8 13h2"/><path d="M12 13h2"/><path d="M16 13h2"/><path d="M8 16h2"/><path d="M12 16h2"/></svg></span><em>Kalender Full</em></button>
+            <button class="nav-item nav-subitem" data-view="brand" type="button"><span class="nav-icon nav-icon-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12V6h6l9 9-6 6-9-9Z"/><circle cx="8" cy="10" r="1.5"/></svg></span><em>Timeline Brand</em></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-nav-group="outputs">
+          <button class="nav-group-toggle" type="button" aria-expanded="false">
+            <span class="nav-icon nav-icon-output"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8"/><path d="M8 13h5"/></svg></span><em>Output & Report</em><b aria-hidden="true">⌄</b>
+          </button>
+          <div class="nav-submenu" hidden>
+            <button class="nav-item nav-subitem" data-view="wagenerator" type="button"><span class="nav-icon nav-icon-wa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19.5 7.2 16A7 7 0 1 1 10 18.4l-4 1.1Z"/><path d="M9.2 9.2c.3 2.5 2.2 4.4 4.6 5"/><path d="M9.2 9.2 10.5 8l1.3 2-1 .8"/><path d="M13.8 14.2l.8-1 2 1.2-1.2 1.3"/></svg></span><em>Generator WhatsApp</em></button>
+            <button class="nav-item nav-subitem" data-view="picreport" type="button"><span class="nav-icon nav-icon-report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19h14"/><path d="M7 16v-5"/><path d="M12 16V7"/><path d="M17 16v-8"/><path d="M6 5h12"/></svg></span><em>Report PIC</em></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-nav-group="system">
+          <button class="nav-group-toggle" type="button" aria-expanded="false">
+            <span class="nav-icon nav-icon-system"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"/><path d="M19 12a7.3 7.3 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7.7 7.7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.3 7.3 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.7 7.7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/></svg></span><em>Sistem</em><b aria-hidden="true">⌄</b>
+          </button>
+          <div class="nav-submenu" hidden>
+            <button class="nav-item nav-subitem" data-view="masters" type="button"><span class="nav-icon nav-icon-data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3Z"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg></span><em>Master Data</em></button>
+            <button class="nav-item nav-subitem" data-view="guide" type="button"><span class="nav-icon nav-icon-guide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h8a4 4 0 0 1 4 4v10H8a2 2 0 0 1-2-2V5Z"/><path d="M9 9h5"/><path d="M9 12h6"/><path d="M9 15h4"/></svg></span><em>Alur Kerja</em></button>
+          </div>
+        </div>
       </nav>
 </aside>
 
@@ -144,7 +177,7 @@
 
         <div class="dashboard-grid lower-grid">
           <article class="panel">
-            <div class="panel-heading"><div><p class="section-label">BATCH TERBARU</p><h3>Benefit yang terakhir diinput</h3></div><button class="text-button" data-go-view="plotings" type="button">Lihat semua →</button></div>
+            <div class="panel-heading"><div><p class="section-label">BATCH TERBARU</p><h3>Benefit yang terakhir diinput</h3></div><button class="text-button" data-go-view="batches" type="button">Lihat semua →</button></div>
             <div class="batch-list" id="recentBatchList"></div>
           </article>
           <article class="panel">
@@ -181,6 +214,32 @@
             </table>
           </div>
           <div class="table-pagination" id="plotPagination" aria-label="Navigasi halaman Master Ploting"></div>
+        </article>
+      </section>
+
+      <section class="view" data-view-panel="batches" id="batchesView">
+        <div class="section-intro panel section-intro--actions">
+          <div class="section-intro-copy"><p class="section-label">KELOLA BATCH</p><h3>Batch Ploting</h3><p>Lihat semua batch dan edit detail benefit beserta seluruh jadwal tayangnya.</p></div>
+          <div class="section-action-group">
+            <button class="primary-button" id="addBatchInlineButton" type="button">+ Tambah Batch</button>
+          </div>
+        </div>
+        <div class="toolbar panel toolbar-batches">
+          <div class="search-box"><span>⌕</span><input id="batchSearchInput" type="search" placeholder="Cari batch, brand, PT, program, unit, PIC, atau sales..." /></div>
+          <select id="batchYearFilter" aria-label="Filter tahun batch"></select>
+          <select id="batchMonthFilter" aria-label="Filter bulan batch"></select>
+          <select id="batchUnitFilter" aria-label="Filter unit batch"></select>
+          <button class="secondary-button" id="resetBatchFilterButton" type="button">Reset</button>
+        </div>
+        <article class="panel data-panel">
+          <div class="panel-heading data-heading"><div><p class="section-label">DAFTAR BATCH</p><h3><span id="batchResultCount">0</span> batch ditampilkan</h3></div></div>
+          <div class="table-wrap data-table-wrap">
+            <table class="data-table batch-table">
+              <thead><tr><th>Batch</th><th>PT / Brand</th><th>Unit / Program</th><th>PIC / Sales</th><th>Periode</th><th>Jadwal</th><th>Total Spot</th><th>Status</th><th></th></tr></thead>
+              <tbody id="batchTableBody"></tbody>
+            </table>
+          </div>
+          <div class="table-pagination" id="batchPagination" aria-label="Navigasi halaman Batch Ploting"></div>
         </article>
       </section>
 
@@ -560,6 +619,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="update-check.js?v=55" defer></script>
-  <script type="module" src="app.js?v=60"></script>
+  <script type="module" src="app.js?v=71"></script>
 </body>
 </html>
