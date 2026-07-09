@@ -5037,3 +5037,759 @@ tbody tr:hover { background: #f5faf9; }
 @media (max-width: 680px) {
   .main-content { --main-content-x: 12px; }
 }
+
+/* v0.60: compact laptop scale and safer responsive spacing */
+:root {
+  --ui-card-radius: 14px;
+  --ui-radius: 12px;
+  --ui-radius-sm: 9px;
+  --ui-control-height: 40px;
+}
+
+html { font-size: 15px; }
+body {
+  font-size: 14px;
+  line-height: 1.42;
+  overflow-x: hidden;
+}
+
+@media (min-width: 921px) {
+  .app-shell { grid-template-columns: 236px minmax(0, 1fr); }
+
+  .sidebar {
+    width: 236px;
+    padding: 15px 11px 14px;
+  }
+
+  .brand-lockup {
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 3px 7px 17px;
+  }
+
+  .brand-mark {
+    width: 39px;
+    height: 39px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
+  .brand-kicker { font-size: 9px; }
+  .brand-lockup h1 { font-size: 18px; }
+
+  .sidebar-unit-logos {
+    margin: 0 3px 13px;
+    padding: 10px;
+    border-radius: 12px;
+  }
+
+  .sidebar-unit-logos p {
+    margin-bottom: 7px;
+    font-size: 9px;
+  }
+
+  .sidebar-unit-logos div { gap: 7px; }
+  .sidebar-unit-logos img {
+    width: 46px;
+    height: 22px;
+  }
+
+  .nav-list { gap: 5px; }
+  .nav-item {
+    min-height: 42px;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  .nav-item span {
+    width: 19px;
+    font-size: 16px;
+  }
+
+  .main-content {
+    --main-content-x: 24px;
+    padding: 0 24px 34px;
+  }
+
+  .topbar {
+    min-height: 76px;
+    padding-block: 12px;
+  }
+
+  .topbar h2 {
+    margin-top: 3px;
+    font-size: clamp(21px, 1.7vw, 27px);
+    letter-spacing: -.75px;
+  }
+
+  .eyebrow, .section-label {
+    font-size: 9px;
+    letter-spacing: .85px;
+  }
+
+  .topbar-actions {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .sync-status, .user-chip {
+    min-height: 36px;
+    padding-block: 6px;
+  }
+
+  .top-date-control {
+    min-width: 148px;
+    padding: 5px 7px 7px;
+    border-radius: 12px;
+    font-size: 8px;
+  }
+
+  .top-date-control input {
+    min-height: 28px;
+    padding: 4px 7px;
+    font-size: 12px;
+  }
+
+  .primary-button {
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .primary-button b { font-size: 15px; }
+
+  .secondary-button, .danger-button {
+    min-height: 38px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .text-button { font-size: 12px; }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    font-size: 18px;
+  }
+
+  .row-action {
+    padding: 6px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+  }
+
+  .view { padding-top: 18px; }
+
+  #dashboardView .dashboard-hero.dashboard-hero--upgrade {
+    min-height: 108px;
+    margin-bottom: 12px;
+    border-radius: 16px;
+  }
+
+  .hero-copy { padding: 18px 20px; }
+  .hero-copy h3 {
+    margin-top: 5px;
+    font-size: 20px;
+    line-height: 1.17;
+  }
+
+  .hero-reminder-lead,
+  .hero-reminder-item span { font-size: 12px; }
+
+  .hero-quick-steps {
+    gap: 8px;
+    padding: 12px 18px 12px 4px;
+  }
+
+  .hero-quick-step {
+    grid-template-columns: 35px 1fr;
+    gap: 10px;
+    padding: 9px 11px;
+    border-radius: 9px;
+  }
+
+  .hero-icon {
+    width: 31px;
+    height: 31px;
+    border-radius: 8px;
+  }
+
+  .hero-quick-step strong { font-size: 13px; }
+
+  .kpi-grid, .daily-kpi-grid, .brand-stats, .full-timeline-kpis, .pic-report-kpis {
+    gap: 11px;
+    margin-bottom: 11px;
+  }
+
+  .kpi-card, .mini-kpi {
+    min-height: 96px;
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .kpi-card::before, .mini-kpi::before {
+    top: 12px;
+    right: 13px;
+    width: 28px;
+    height: 3px;
+  }
+
+  .kpi-card p, .mini-kpi p { font-size: 10px; }
+  .kpi-card strong, .mini-kpi strong {
+    margin-top: 7px;
+    font-size: 28px;
+  }
+  .kpi-card small, .mini-kpi small {
+    margin-top: 5px;
+    font-size: 12px;
+  }
+
+  .dashboard-grid,
+  #dashboardView .dashboard-grid,
+  .master-layout,
+  .master-grid,
+  .pic-report-layout,
+  .full-unit-summary-grid,
+  .guide-flow {
+    gap: 11px;
+  }
+
+  .lower-grid, .master-grid, .brand-detail-panel, .pic-detail-panel { margin-top: 11px; }
+
+  .panel { border-radius: 11px; }
+  .panel > .panel-heading { padding: 16px 16px 0; }
+  .panel-heading { gap: 11px; }
+  .panel-heading h3 {
+    margin-top: 4px;
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .muted-caption {
+    max-width: 380px;
+    font-size: 12px;
+  }
+
+  .attention-list, .batch-list, .upcoming-list {
+    gap: 7px;
+    padding: 11px 12px 13px;
+  }
+
+  #dashboardView .attention-item,
+  #dashboardView .batch-item,
+  #dashboardView .upcoming-item,
+  .attention-item,
+  .batch-item,
+  .upcoming-item {
+    gap: 10px;
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .attention-item strong, .batch-item strong, .upcoming-item strong { font-size: 13px; }
+  .attention-item p, .batch-item p, .upcoming-item p { font-size: 12px; }
+  #dashboardView .item-side, .item-side {
+    padding: 5px 7px;
+    font-size: 10px;
+  }
+
+  .section-intro, .timeline-header {
+    padding: 17px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+  }
+
+  .intro-row h3, .section-intro h3, .timeline-header h3 {
+    margin-top: 3px;
+    font-size: 19px;
+    line-height: 1.2;
+  }
+
+  .intro-row > div > p:last-child,
+  .section-intro > div > p:last-child,
+  .timeline-header > div > p:last-child {
+    margin-top: 5px;
+    font-size: 13px;
+  }
+
+  .toolbar,
+  .toolbar-plotings {
+    gap: 8px;
+    padding: 11px;
+    border-radius: 12px;
+  }
+
+  .toolbar {
+    grid-template-columns: minmax(220px, 1.8fr) repeat(4, minmax(118px, 1fr)) auto;
+  }
+
+  input, select, textarea, .search-box,
+  .search-box input {
+    min-height: 40px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  input, select { padding: 8px 9px; }
+  textarea {
+    min-height: 88px;
+    padding: 9px;
+  }
+
+  .search-box {
+    gap: 7px;
+    padding: 0 10px;
+  }
+
+  .search-box span { font-size: 16px; }
+
+  th, td { padding: 11px 12px; }
+  th { font-size: 10px; }
+  td { font-size: 13px; }
+  .compact-table th, .compact-table td { padding: 10px 11px; }
+  .plotings-table th, .plotings-table td { padding: 11px 12px; }
+
+  .cell-title { font-size: 13px; }
+  .cell-subtitle { font-size: 12px; }
+
+  .badge {
+    min-height: 24px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .spot-value {
+    min-height: 24px;
+    padding: 4px 7px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+
+  .pic-chip {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .table-pagination {
+    gap: 9px;
+    padding: 12px 15px;
+  }
+
+  .pagination-summary { font-size: 12px; }
+  .pagination-actions, .pagination-pages { gap: 6px; }
+  .pagination-nav, .pagination-page {
+    min-height: 32px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .timeline-panel, .calendar-panel, .brand-detail-panel,
+  .full-timeline-panel, .full-timeline-summary-panel,
+  .pic-overview-panel, .pic-scope-panel {
+    padding: 0 15px 15px;
+  }
+
+  .timeline-panel > .panel-heading,
+  .calendar-panel > .panel-heading,
+  .brand-detail-panel > .panel-heading,
+  .full-timeline-panel > .panel-heading,
+  .full-timeline-summary-panel > .panel-heading,
+  .pic-overview-panel > .panel-heading,
+  .pic-scope-panel > .panel-heading {
+    padding-top: 15px;
+  }
+
+  .timeline-unit { border-radius: 13px; }
+  .timeline-unit-head { padding: 12px 14px; }
+  .timeline-unit-head strong { font-size: 13px; }
+  .timeline-unit-head span { font-size: 12px; }
+  .timeline-entry {
+    grid-template-columns: minmax(190px, 1.35fr) minmax(155px, .95fr) 78px minmax(125px, .85fr) minmax(108px, .75fr) auto;
+    gap: 11px;
+    padding: 12px 14px;
+  }
+
+  .timeline-entry strong { font-size: 13px; }
+  .timeline-entry p { font-size: 12px; }
+
+  .seven-day-list { gap: 8px; }
+  .day-column {
+    min-height: 150px;
+    padding: 10px;
+    border-radius: 12px;
+  }
+  .day-column h4 { font-size: 12px; }
+  .day-event {
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+
+  .brand-filter-controls {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+
+  .brand-filter-controls label {
+    min-width: 148px;
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .brand-filter-controls select,
+  .brand-search-input { min-width: 150px; }
+
+  .section-action-group,
+  .report-header-actions {
+    gap: 8px;
+  }
+
+  .calendar-weekdays,
+  .brand-calendar {
+    min-width: 770px;
+    grid-template-columns: repeat(7, minmax(110px, 1fr));
+  }
+
+  .calendar-weekdays span {
+    padding: 10px 8px;
+    font-size: 10px;
+  }
+
+  .calendar-day {
+    min-height: 124px;
+    padding: 8px;
+  }
+
+  .calendar-day-number { font-size: 12px; }
+  .calendar-event {
+    padding: 6px 7px;
+    border-radius: 8px;
+    font-size: 10px;
+  }
+
+  .full-calendar-scroll { margin-top: 12px; }
+  .full-calendar-weekdays,
+  .full-calendar-grid {
+    min-width: 900px;
+    grid-template-columns: repeat(7, minmax(128px, 1fr));
+  }
+
+  .full-calendar-weekdays span {
+    padding: 10px 8px;
+    font-size: 11px;
+  }
+
+  .full-calendar-day {
+    min-height: 178px;
+    max-height: 178px;
+    padding: 8px;
+  }
+
+  .full-calendar-day-head {
+    min-height: 25px;
+    margin-bottom: 6px;
+  }
+
+  .full-calendar-day-head strong { font-size: 16px; }
+  .full-calendar-day-head span {
+    min-height: 21px;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .full-calendar-events,
+  .full-calendar-events-compact { gap: 5px; }
+
+  .full-calendar-event,
+  .full-calendar-event-compact {
+    min-height: 54px;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .full-calendar-event strong,
+  .full-calendar-event-compact strong { font-size: 11px; }
+  .full-calendar-program,
+  .full-calendar-event-compact .full-calendar-program { font-size: 9px; }
+  .full-calendar-unit,
+  .full-calendar-event-compact .full-calendar-unit { font-size: 9px; }
+  .full-calendar-spot,
+  .full-calendar-event-compact .full-calendar-spot { font-size: 10px; }
+
+  .full-unit-summary-card {
+    min-height: 124px;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .full-unit-summary-head strong { font-size: 14px; }
+  .full-brand-list { gap: 5px; margin-top: 10px; }
+  .full-brand-list span {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+  .full-unit-total strong { font-size: 21px; }
+
+  .wa-generator-layout {
+    grid-template-columns: minmax(230px, .72fr) minmax(0, 1.28fr);
+    gap: 12px;
+  }
+
+  .wa-panel-head h3 { font-size: 16px; }
+  .wa-program-button,
+  .wa-assignment-item {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .wa-message-preview {
+    margin: 14px;
+    padding: 14px;
+    font-size: 12px;
+  }
+
+  .master-add-panel, .master-summary-panel { padding: 18px; }
+  .master-add-panel h3, .master-summary-panel h3 { font-size: 18px; }
+  .master-form { gap: 11px; margin-top: 13px; }
+  .master-form label, .form-grid label { font-size: 12px; }
+  .master-card-head { padding: 13px; }
+  .master-card-head h4 { font-size: 14px; }
+  .master-list-item { padding: 9px 12px; }
+  .master-list-item span { font-size: 12px; }
+
+  .guide-card { padding: 18px; border-radius: 16px; }
+  .guide-card h3 { font-size: 20px; }
+  .guide-flow > div {
+    min-height: 132px;
+    padding: 13px;
+    border-radius: 13px;
+  }
+  .guide-flow h4 { font-size: 14px; }
+  .guide-flow p, .rule-box { font-size: 12px; }
+
+  .modal-backdrop { padding: 18px; }
+  .modal {
+    width: min(980px, 100%);
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .modal-header { padding-bottom: 14px; }
+  .modal-header h3 { font-size: 21px; }
+  .form-section { padding: 17px 0; }
+  .form-section-title strong { font-size: 15px; }
+  .form-section-title small, .date-help { font-size: 12px; }
+  .form-grid {
+    gap: 11px;
+    padding-top: 13px;
+  }
+
+  .schedule-table th,
+  .schedule-table td { padding: 9px 10px; }
+
+  .toast {
+    right: 15px;
+    bottom: 15px;
+    padding: 10px 12px;
+    border-radius: 11px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 226px minmax(0, 1fr); }
+  .sidebar { width: 226px; }
+  .main-content {
+    --main-content-x: 20px;
+    padding-inline: 20px;
+  }
+
+  .dashboard-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(310px, .75fr);
+  }
+
+  .hero-quick-steps { padding-right: 14px; }
+
+  .toolbar {
+    grid-template-columns: minmax(210px, 1.5fr) repeat(3, minmax(115px, 1fr));
+  }
+
+  .toolbar .secondary-button {
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .plotings-table { min-width: 1120px; }
+  .pic-detail-table { min-width: 940px; }
+  .brand-detail-table { min-width: 1030px; }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 214px minmax(0, 1fr); }
+  .sidebar { width: 214px; }
+  .main-content {
+    --main-content-x: 18px;
+    padding-inline: 18px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    min-height: 0;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .dashboard-hero { grid-template-columns: 1fr; }
+  .hero-quick-steps {
+    grid-template-columns: 1fr 1fr;
+    padding: 0 18px 16px;
+  }
+
+  .dashboard-grid,
+  #dashboardView .dashboard-grid,
+  .pic-report-layout,
+  .master-layout,
+  .wa-generator-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-entry {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wa-program-panel { position: static; }
+}
+
+@media (max-width: 1024px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 204px minmax(0, 1fr); }
+  .sidebar { width: 204px; }
+  .nav-item {
+    min-height: 39px;
+    padding: 8px 9px;
+    font-size: 12px;
+  }
+
+  .main-content {
+    --main-content-x: 16px;
+    padding-inline: 16px;
+  }
+
+  .topbar h2 { font-size: 22px; }
+  .kpi-grid, .daily-kpi-grid, .brand-stats, .full-timeline-kpis, .pic-report-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-intro, .timeline-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .section-action-group,
+  .report-header-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+@media (max-width: 920px) {
+  html { font-size: 15px; }
+  body { font-size: 14px; }
+
+  .sidebar {
+    padding: 14px;
+  }
+
+  .brand-lockup {
+    margin-bottom: 10px;
+    padding-bottom: 14px;
+  }
+
+  .nav-list {
+    gap: 7px;
+    scrollbar-width: thin;
+  }
+
+  .nav-item {
+    min-height: 40px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+
+  .main-content {
+    --main-content-x: 14px;
+    padding: 0 14px 30px;
+  }
+
+  .topbar {
+    padding-block: 15px;
+  }
+
+  .topbar h2 { font-size: 23px; }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button {
+    min-height: 38px;
+    font-size: 12px;
+  }
+
+  input, select, textarea, .search-box, .search-box input {
+    min-height: 40px;
+    font-size: 13px;
+  }
+
+  .panel > .panel-heading { padding: 15px 15px 0; }
+  .panel-heading h3 { font-size: 16px; }
+
+  .section-intro, .timeline-header {
+    padding: 15px;
+  }
+
+  .section-intro h3, .timeline-header h3 { font-size: 19px; }
+
+  th, td { padding: 10px 11px; }
+  td { font-size: 13px; }
+}
+
+@media (max-width: 680px) {
+  .main-content {
+    --main-content-x: 10px;
+    padding: 0 10px 26px;
+  }
+
+  .view { padding-top: 15px; }
+  .topbar h2 { font-size: 22px; }
+  .topbar-actions { gap: 7px; }
+
+  .hero-copy { padding: 16px; }
+  .hero-copy h3 { font-size: 20px; }
+  .hero-quick-steps { padding: 0 16px 16px; }
+
+  .kpi-card, .mini-kpi {
+    min-height: 98px;
+    padding: 12px;
+  }
+
+  .kpi-card strong, .mini-kpi strong { font-size: 26px; }
+
+  .toolbar, .toolbar-plotings { padding: 10px; }
+  .calendar-day { min-height: 104px; }
+  .full-calendar-day {
+    min-height: 160px;
+    max-height: 160px;
+  }
+
+  .modal { border-radius: 16px; }
+}
