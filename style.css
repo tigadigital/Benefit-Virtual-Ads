@@ -5793,3 +5793,1298 @@ body {
 
   .modal { border-radius: 16px; }
 }
+
+/* v0.61: extra compact laptop scale */
+:root {
+  --ui-card-radius: 11px;
+  --ui-radius: 10px;
+  --ui-radius-sm: 7px;
+  --ui-control-height: 36px;
+}
+
+html { font-size: 14px; }
+body {
+  font-size: 13px;
+  line-height: 1.38;
+}
+
+@media (min-width: 921px) {
+  .app-shell { grid-template-columns: 218px minmax(0, 1fr); }
+
+  .sidebar {
+    width: 218px;
+    padding: 12px 9px 12px;
+  }
+
+  .brand-lockup {
+    gap: 8px;
+    margin-bottom: 7px;
+    padding: 2px 6px 13px;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 11px;
+  }
+
+  .brand-kicker { font-size: 8px; letter-spacing: .9px; }
+  .brand-lockup h1 { font-size: 16px; }
+
+  .sidebar-unit-logos {
+    margin: 0 2px 10px;
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .sidebar-unit-logos p {
+    margin-bottom: 6px;
+    font-size: 8px;
+  }
+
+  .sidebar-unit-logos div { gap: 6px; }
+  .sidebar-unit-logos img {
+    width: 40px;
+    height: 19px;
+  }
+
+  .nav-list { gap: 4px; }
+  .nav-item {
+    min-height: 36px;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+
+  .nav-item span {
+    width: 17px;
+    font-size: 14px;
+  }
+
+  .main-content {
+    --main-content-x: 20px;
+    padding: 0 20px 28px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    gap: 14px;
+    min-height: 62px;
+    padding-block: 10px;
+  }
+
+  .page-heading { min-width: 210px; }
+  .topbar h2 {
+    margin-top: 2px;
+    font-size: clamp(19px, 1.55vw, 23px);
+    letter-spacing: -.55px;
+  }
+
+  .eyebrow, .section-label {
+    font-size: 8px;
+    letter-spacing: .72px;
+  }
+
+  .topbar-actions {
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .sync-status, .user-chip {
+    min-height: 32px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+  }
+
+  .user-chip span:first-child {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+
+  .top-date-control {
+    min-width: 132px;
+    gap: 3px;
+    padding: 4px 6px 5px;
+    border-radius: 9px;
+    font-size: 7px;
+  }
+
+  .top-date-control input {
+    min-height: 25px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button {
+    min-height: 34px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 11px;
+  }
+
+  .primary-button b { font-size: 13px; }
+  .text-button { font-size: 11px; }
+
+  .icon-button {
+    width: 34px;
+    height: 34px;
+    border-radius: 7px;
+    font-size: 16px;
+  }
+
+  .row-action {
+    padding: 5px 7px;
+    border-radius: 6px;
+    font-size: 10px;
+  }
+
+  .view { padding-top: 14px; }
+
+  #dashboardView .dashboard-hero.dashboard-hero--upgrade {
+    grid-template-columns: minmax(0, 1.12fr) minmax(260px, .78fr);
+    min-height: 92px;
+    margin-bottom: 9px;
+    border-radius: 12px;
+  }
+
+  .hero-copy { padding: 14px 16px; }
+  .hero-copy h3 {
+    margin-top: 3px;
+    font-size: 17px;
+    line-height: 1.15;
+  }
+
+  .hero-reminder-lead,
+  .hero-reminder-item span { font-size: 11px; }
+
+  .hero-reminder-list { gap: 6px; margin-top: 9px; }
+  .hero-reminder-item { padding: 8px 9px; border-radius: 9px; }
+  .hero-reminder-item strong { font-size: 11px; }
+
+  .hero-quick-steps {
+    gap: 7px;
+    padding: 10px 14px 10px 0;
+  }
+
+  .hero-quick-step {
+    grid-template-columns: 30px 1fr;
+    gap: 8px;
+    padding: 8px 9px;
+    border-radius: 8px;
+  }
+
+  .hero-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+
+  .hero-quick-step strong { font-size: 12px; }
+
+  .kpi-grid,
+  .daily-kpi-grid,
+  .brand-stats,
+  .full-timeline-kpis,
+  .pic-report-kpis {
+    gap: 9px;
+    margin-bottom: 9px;
+  }
+
+  .kpi-card,
+  .mini-kpi {
+    min-height: 82px;
+    padding: 11px;
+    border-radius: 9px;
+  }
+
+  .kpi-card::before,
+  .mini-kpi::before {
+    top: 10px;
+    right: 11px;
+    width: 23px;
+    height: 3px;
+  }
+
+  .kpi-card p,
+  .mini-kpi p { font-size: 9px; }
+
+  .kpi-card strong,
+  .mini-kpi strong {
+    margin-top: 5px;
+    font-size: 24px;
+  }
+
+  .kpi-card small,
+  .mini-kpi small {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  .dashboard-grid,
+  #dashboardView .dashboard-grid,
+  .master-layout,
+  .master-grid,
+  .pic-report-layout,
+  .full-unit-summary-grid,
+  .guide-flow,
+  .wa-generator-layout {
+    gap: 9px;
+  }
+
+  .lower-grid,
+  .master-grid,
+  .brand-detail-panel,
+  .pic-detail-panel { margin-top: 9px; }
+
+  .panel { border-radius: 10px; }
+  .panel > .panel-heading { padding: 13px 13px 0; }
+  .panel-heading { gap: 9px; }
+  .panel-heading h3 {
+    margin-top: 3px;
+    font-size: 14px;
+    line-height: 1.18;
+  }
+
+  .muted-caption {
+    max-width: 330px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .attention-list,
+  .batch-list,
+  .upcoming-list {
+    gap: 6px;
+    padding: 9px 10px 10px;
+  }
+
+  #dashboardView .attention-item,
+  #dashboardView .batch-item,
+  #dashboardView .upcoming-item,
+  .attention-item,
+  .batch-item,
+  .upcoming-item {
+    gap: 8px;
+    padding: 8px;
+    border-radius: 8px;
+  }
+
+  .attention-item strong,
+  .batch-item strong,
+  .upcoming-item strong { font-size: 12px; }
+  .attention-item p,
+  .batch-item p,
+  .upcoming-item p { font-size: 11px; }
+
+  .section-intro,
+  .timeline-header {
+    padding: 14px;
+    margin-bottom: 9px;
+    border-radius: 10px;
+  }
+
+  .intro-row h3,
+  .section-intro h3,
+  .timeline-header h3 {
+    margin-top: 2px;
+    font-size: 17px;
+    line-height: 1.17;
+  }
+
+  .intro-row > div > p:last-child,
+  .section-intro > div > p:last-child,
+  .timeline-header > div > p:last-child {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  .toolbar,
+  .toolbar-plotings {
+    gap: 6px;
+    padding: 9px;
+    border-radius: 10px;
+  }
+
+  .toolbar {
+    grid-template-columns: minmax(200px, 1.8fr) repeat(4, minmax(106px, 1fr)) auto;
+  }
+
+  .toolbar-plotings {
+    grid-template-columns: minmax(210px, 1.8fr) repeat(5, minmax(95px, 1fr)) auto;
+  }
+
+  input,
+  select,
+  textarea,
+  .search-box,
+  .search-box input {
+    min-height: 36px;
+    border-radius: 7px;
+    font-size: 12px;
+  }
+
+  input,
+  select { padding: 7px 8px; }
+  textarea {
+    min-height: 78px;
+    padding: 8px;
+  }
+
+  .search-box {
+    gap: 6px;
+    padding: 0 9px;
+  }
+
+  .search-box span { font-size: 14px; }
+
+  th,
+  td { padding: 9px 10px; }
+  th { font-size: 9px; }
+  td { font-size: 12px; }
+
+  .compact-table th,
+  .compact-table td { padding: 8px 9px; }
+  .plotings-table th,
+  .plotings-table td { padding: 9px 10px; }
+
+  .plotings-table { min-width: 1060px; }
+  .pic-detail-table { min-width: 900px; }
+  .brand-detail-table { min-width: 980px; }
+
+  .cell-title { font-size: 12px; }
+  .cell-subtitle { margin-top: 2px; font-size: 11px; }
+
+  .badge {
+    min-height: 21px;
+    gap: 4px;
+    padding: 4px 7px;
+    font-size: 9px;
+  }
+
+  .badge::before {
+    width: 5px;
+    height: 5px;
+  }
+
+  .spot-value {
+    min-height: 22px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .pic-chip {
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+
+  .table-pagination {
+    gap: 7px;
+    padding: 10px 12px;
+  }
+
+  .pagination-summary { font-size: 11px; }
+  .pagination-actions,
+  .pagination-pages { gap: 5px; }
+  .pagination-nav,
+  .pagination-page {
+    min-height: 29px;
+    padding: 5px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+  }
+
+  .timeline-panel,
+  .calendar-panel,
+  .brand-detail-panel,
+  .full-timeline-panel,
+  .full-timeline-summary-panel,
+  .pic-overview-panel,
+  .pic-scope-panel {
+    padding: 0 12px 12px;
+  }
+
+  .timeline-panel > .panel-heading,
+  .calendar-panel > .panel-heading,
+  .brand-detail-panel > .panel-heading,
+  .full-timeline-panel > .panel-heading,
+  .full-timeline-summary-panel > .panel-heading,
+  .pic-overview-panel > .panel-heading,
+  .pic-scope-panel > .panel-heading {
+    padding-top: 12px;
+  }
+
+  .timeline-unit { border-radius: 10px; }
+  .timeline-unit-head { padding: 10px 11px; }
+  .timeline-unit-head strong { font-size: 12px; }
+  .timeline-unit-head span { font-size: 11px; }
+  .timeline-entry {
+    grid-template-columns: minmax(170px, 1.35fr) minmax(145px, .95fr) 68px minmax(112px, .85fr) minmax(96px, .75fr) auto;
+    gap: 9px;
+    padding: 10px 11px;
+  }
+
+  .timeline-entry strong { font-size: 12px; }
+  .timeline-entry p { margin-top: 2px; font-size: 11px; }
+
+  .seven-day-list { gap: 7px; }
+  .day-column {
+    min-height: 132px;
+    padding: 8px;
+    border-radius: 10px;
+  }
+  .day-column h4 { font-size: 11px; }
+  .day-event {
+    padding: 6px 7px;
+    font-size: 10px;
+  }
+
+  .brand-filter-controls {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .brand-filter-controls label {
+    min-width: 132px;
+    gap: 4px;
+    font-size: 10px;
+  }
+
+  .brand-filter-controls select,
+  .brand-search-input { min-width: 132px; }
+
+  .section-action-group,
+  .report-header-actions { gap: 7px; }
+
+  .calendar-scroll { margin-top: 12px; }
+  .calendar-weekdays,
+  .brand-calendar {
+    min-width: 700px;
+    grid-template-columns: repeat(7, minmax(100px, 1fr));
+  }
+
+  .calendar-weekdays span {
+    padding: 8px 7px;
+    font-size: 9px;
+  }
+
+  .calendar-day {
+    min-height: 108px;
+    padding: 7px;
+  }
+
+  .calendar-day-number { margin-bottom: 6px; font-size: 11px; }
+  .calendar-event {
+    gap: 2px;
+    padding: 5px 6px;
+    border-radius: 7px;
+    font-size: 9px;
+  }
+
+  .calendar-event small { font-size: 8px; }
+
+  .full-calendar-scroll { margin-top: 10px; }
+  .full-calendar-weekdays,
+  .full-calendar-grid {
+    min-width: 805px;
+    grid-template-columns: repeat(7, minmax(115px, 1fr));
+  }
+
+  .full-calendar-weekdays span {
+    padding: 8px 7px;
+    font-size: 10px;
+  }
+
+  .full-calendar-day {
+    min-height: 150px;
+    max-height: 150px;
+    padding: 7px;
+  }
+
+  .full-calendar-day-head {
+    min-height: 22px;
+    margin-bottom: 5px;
+  }
+
+  .full-calendar-day-head strong { font-size: 14px; }
+  .full-calendar-day-head span {
+    min-height: 18px;
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  .full-calendar-events,
+  .full-calendar-events-compact { gap: 4px; }
+
+  .full-calendar-event,
+  .full-calendar-event-compact {
+    min-height: 46px;
+    gap: 3px;
+    padding: 5px;
+    border-radius: 7px;
+  }
+
+  .full-calendar-event strong,
+  .full-calendar-event-compact strong {
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .full-calendar-program,
+  .full-calendar-event-compact .full-calendar-program { font-size: 8px; }
+  .full-calendar-unit,
+  .full-calendar-event-compact .full-calendar-unit { font-size: 8px; }
+  .full-calendar-spot,
+  .full-calendar-event-compact .full-calendar-spot { font-size: 9px; }
+
+  .full-calendar-more {
+    min-height: 20px;
+    font-size: 9px;
+  }
+
+  .full-unit-summary-card {
+    min-height: 108px;
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .full-unit-summary-head strong { font-size: 13px; }
+  .full-unit-summary-head span { font-size: 10px; }
+  .full-brand-list { gap: 4px; margin-top: 8px; }
+  .full-brand-list span {
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+  .full-unit-total { margin-top: 10px; }
+  .full-unit-total strong { font-size: 19px; }
+
+  .wa-generator-layout {
+    grid-template-columns: minmax(210px, .7fr) minmax(0, 1.3fr);
+    gap: 9px;
+  }
+
+  .wa-panel-head h3 { font-size: 14px; }
+  .wa-program-button,
+  .wa-assignment-item {
+    padding: 8px;
+    border-radius: 8px;
+  }
+
+  .wa-program-button strong,
+  .wa-assignment-detail strong { font-size: 12px; }
+  .wa-program-button span,
+  .wa-assignment-detail span { font-size: 10px; }
+
+  .wa-message-preview {
+    min-height: 300px;
+    margin: 11px;
+    padding: 11px;
+    font-size: 11px;
+  }
+
+  .master-add-panel,
+  .master-summary-panel { padding: 14px; }
+  .master-add-panel h3,
+  .master-summary-panel h3 { font-size: 16px; }
+  .master-form { gap: 9px; margin-top: 11px; }
+  .master-form label,
+  .form-grid label { font-size: 11px; }
+  .master-card-head { padding: 11px; }
+  .master-card-head h4 { font-size: 13px; }
+  .master-card-head span { font-size: 10px; }
+  .master-list { max-height: 250px; }
+  .master-list-item { padding: 8px 10px; }
+  .master-list-item span { font-size: 11px; }
+  .master-delete { padding: 4px 6px; font-size: 10px; }
+
+  .guide-card { padding: 15px; border-radius: 14px; }
+  .guide-card h3 { font-size: 18px; }
+  .guide-flow > div {
+    min-height: 118px;
+    padding: 11px;
+    border-radius: 11px;
+  }
+  .guide-flow h4 { font-size: 13px; }
+  .guide-flow p,
+  .rule-box { font-size: 11px; }
+
+  .modal-backdrop { padding: 14px; }
+  .modal {
+    width: min(900px, 100%);
+    padding: 17px;
+    border-radius: 15px;
+  }
+
+  .modal-header { padding-bottom: 11px; }
+  .modal-header h3 { font-size: 19px; }
+  .form-section { padding: 14px 0; }
+  .form-section-title strong { font-size: 14px; }
+  .form-section-title small,
+  .date-help { font-size: 11px; }
+  .form-grid {
+    gap: 9px;
+    padding-top: 11px;
+  }
+
+  .schedule-table-wrap { margin-top: 13px; border-radius: 10px; }
+  .schedule-table th,
+  .schedule-table td { padding: 7px 8px; }
+
+  .schedule-edit-context {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 9px;
+  }
+
+  .schedule-edit-context strong { font-size: 13px; }
+  .schedule-edit-context span { font-size: 11px; }
+
+  .schedule-slide-panel {
+    gap: 10px;
+    margin-top: 13px;
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .toast {
+    right: 12px;
+    bottom: 12px;
+    padding: 9px 11px;
+    border-radius: 10px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 206px minmax(0, 1fr); }
+  .sidebar { width: 206px; }
+  .main-content {
+    --main-content-x: 16px;
+    padding-inline: 16px;
+  }
+
+  .topbar {
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .dashboard-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, .72fr);
+  }
+
+  .toolbar,
+  .toolbar-plotings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar .search-box,
+  .toolbar-plotings .search-box {
+    grid-column: 1 / -1;
+  }
+
+  .toolbar .secondary-button,
+  .toolbar-plotings .secondary-button {
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .section-action-group,
+  .report-header-actions,
+  .brand-filter-controls {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 190px minmax(0, 1fr); }
+  .sidebar { width: 190px; }
+  .main-content {
+    --main-content-x: 14px;
+    padding-inline: 14px;
+  }
+
+  .brand-lockup h1 { font-size: 15px; }
+  .nav-item {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .sidebar-unit-logos img {
+    width: 36px;
+    height: 17px;
+  }
+
+  .dashboard-hero { grid-template-columns: 1fr; }
+  .hero-quick-steps {
+    grid-template-columns: 1fr 1fr;
+    padding: 0 14px 12px;
+  }
+
+  .dashboard-grid,
+  #dashboardView .dashboard-grid,
+  .pic-report-layout,
+  .master-layout,
+  .wa-generator-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-grid,
+  .daily-kpi-grid,
+  .brand-stats,
+  .full-timeline-kpis,
+  .pic-report-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .timeline-entry {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wa-program-panel { position: static; }
+}
+
+@media (max-width: 1024px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 176px minmax(0, 1fr); }
+  .sidebar { width: 176px; }
+  .main-content {
+    --main-content-x: 12px;
+    padding-inline: 12px;
+  }
+
+  .topbar h2 { font-size: 19px; }
+  .top-date-control { width: 132px; }
+
+  .section-intro,
+  .timeline-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .section-action-group,
+  .report-header-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .brand-filter-controls label {
+    flex: 1 1 140px;
+  }
+}
+
+@media (max-width: 920px) {
+  html { font-size: 14px; }
+  body { font-size: 13px; }
+
+  .sidebar { padding: 12px; }
+  .brand-lockup { margin-bottom: 8px; padding-bottom: 12px; }
+  .nav-list { gap: 6px; }
+  .nav-item {
+    min-height: 36px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    font-size: 11px;
+  }
+
+  .main-content {
+    --main-content-x: 12px;
+    padding: 0 12px 26px;
+  }
+
+  .topbar { padding-block: 12px; }
+  .topbar h2 { font-size: 21px; }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button {
+    min-height: 35px;
+    font-size: 11px;
+  }
+
+  input,
+  select,
+  textarea,
+  .search-box,
+  .search-box input {
+    min-height: 37px;
+    font-size: 12px;
+  }
+
+  .panel > .panel-heading { padding: 13px 13px 0; }
+  .panel-heading h3 { font-size: 14px; }
+
+  .section-intro,
+  .timeline-header { padding: 13px; }
+  .section-intro h3,
+  .timeline-header h3 { font-size: 17px; }
+
+  th,
+  td { padding: 8px 9px; }
+  td { font-size: 12px; }
+}
+
+@media (max-width: 680px) {
+  .main-content {
+    --main-content-x: 9px;
+    padding: 0 9px 24px;
+  }
+
+  .view { padding-top: 12px; }
+  .topbar h2 { font-size: 20px; }
+  .hero-copy { padding: 14px; }
+  .hero-copy h3 { font-size: 18px; }
+  .hero-quick-steps { padding: 0 14px 14px; }
+
+  .kpi-card,
+  .mini-kpi {
+    min-height: 88px;
+    padding: 10px;
+  }
+
+  .kpi-card strong,
+  .mini-kpi strong { font-size: 23px; }
+
+  .toolbar,
+  .toolbar-plotings { padding: 8px; }
+  .calendar-day { min-height: 96px; }
+  .full-calendar-day {
+    min-height: 145px;
+    max-height: 145px;
+  }
+
+  .modal {
+    padding: 15px;
+    border-radius: 14px;
+  }
+}
+
+/* v0.62: balanced compact scale refinements */
+@media (min-width: 921px) {
+  .app-shell { grid-template-columns: 222px minmax(0, 1fr); }
+  .sidebar {
+    width: 222px;
+    padding: 13px 10px 12px;
+  }
+
+  .brand-lockup h1 { font-size: 17px; }
+  .brand-kicker { font-size: 8.5px; }
+
+  .sidebar-unit-logos p { font-size: 8.5px; }
+  .sidebar-unit-logos img {
+    width: 41px;
+    height: 20px;
+  }
+
+  .nav-list { gap: 4px; }
+  .nav-item {
+    min-height: 40px;
+    gap: 9px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    font-size: 13px;
+    line-height: 1.18;
+  }
+
+  .nav-item span {
+    width: 19px;
+    font-size: 16px;
+  }
+
+  /* Header information cards: slightly larger than v61 for readability. */
+  .daily-kpi-grid .mini-kpi,
+  .full-timeline-kpis .mini-kpi,
+  .brand-stats .mini-kpi,
+  .pic-report-kpis .mini-kpi {
+    min-height: 96px;
+    padding: 13px 14px;
+    border-radius: 10px;
+  }
+
+  .daily-kpi-grid .mini-kpi p,
+  .full-timeline-kpis .mini-kpi p,
+  .brand-stats .mini-kpi p,
+  .pic-report-kpis .mini-kpi p {
+    font-size: 10px;
+    letter-spacing: .55px;
+  }
+
+  .daily-kpi-grid .mini-kpi strong,
+  .full-timeline-kpis .mini-kpi strong,
+  .brand-stats .mini-kpi strong,
+  .pic-report-kpis .mini-kpi strong {
+    margin-top: 6px;
+    font-size: 28px;
+    letter-spacing: -.75px;
+  }
+
+  .daily-kpi-grid .mini-kpi small,
+  .full-timeline-kpis .mini-kpi small,
+  .brand-stats .mini-kpi small,
+  .pic-report-kpis .mini-kpi small {
+    margin-top: 5px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  /* Kalender Full: tampilkan semua jadwal. Tidak ada kartu yang dipotong. */
+  .full-calendar-scroll {
+    overflow: auto;
+  }
+
+  .full-calendar-grid {
+    align-items: stretch;
+  }
+
+  .full-calendar-day {
+    min-height: 170px;
+    max-height: none !important;
+    height: auto;
+    overflow: visible !important;
+  }
+
+  .full-calendar-events,
+  .full-calendar-events-all,
+  .full-calendar-events-compact {
+    display: grid;
+    align-content: start;
+    gap: 5px;
+  }
+
+  .full-calendar-events-all {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .full-calendar-event-grid,
+  .full-calendar-event,
+  .full-calendar-event-compact {
+    min-height: 50px;
+    padding: 6px;
+  }
+
+  .full-calendar-event-grid strong,
+  .full-calendar-event strong,
+  .full-calendar-event-compact strong {
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
+
+  .full-calendar-program,
+  .full-calendar-event-compact .full-calendar-program {
+    font-size: 8.5px;
+    line-height: 1.2;
+  }
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 218px minmax(0, 1fr); }
+  .sidebar { width: 218px; }
+
+  .nav-item {
+    min-height: 39px;
+    padding: 8px 9px;
+    font-size: 12.8px;
+  }
+
+  .nav-item span {
+    width: 18px;
+    font-size: 15px;
+  }
+
+  .daily-kpi-grid .mini-kpi,
+  .full-timeline-kpis .mini-kpi,
+  .brand-stats .mini-kpi,
+  .pic-report-kpis .mini-kpi {
+    min-height: 92px;
+    padding: 12px 13px;
+  }
+
+  .daily-kpi-grid .mini-kpi strong,
+  .full-timeline-kpis .mini-kpi strong,
+  .brand-stats .mini-kpi strong,
+  .pic-report-kpis .mini-kpi strong {
+    font-size: 27px;
+  }
+
+  .full-calendar-day { min-height: 165px; }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 204px minmax(0, 1fr); }
+  .sidebar { width: 204px; }
+
+  .brand-lockup h1 { font-size: 16px; }
+  .nav-item {
+    min-height: 38px;
+    padding: 7px 9px;
+    font-size: 12.4px;
+  }
+
+  .nav-item span {
+    width: 18px;
+    font-size: 15px;
+  }
+
+  .daily-kpi-grid .mini-kpi,
+  .full-timeline-kpis .mini-kpi,
+  .brand-stats .mini-kpi,
+  .pic-report-kpis .mini-kpi {
+    min-height: 90px;
+    padding: 12px;
+  }
+
+  .daily-kpi-grid .mini-kpi p,
+  .full-timeline-kpis .mini-kpi p,
+  .brand-stats .mini-kpi p,
+  .pic-report-kpis .mini-kpi p { font-size: 9.5px; }
+
+  .daily-kpi-grid .mini-kpi strong,
+  .full-timeline-kpis .mini-kpi strong,
+  .brand-stats .mini-kpi strong,
+  .pic-report-kpis .mini-kpi strong { font-size: 26px; }
+
+  .daily-kpi-grid .mini-kpi small,
+  .full-timeline-kpis .mini-kpi small,
+  .brand-stats .mini-kpi small,
+  .pic-report-kpis .mini-kpi small { font-size: 11.5px; }
+
+  .full-calendar-weekdays,
+  .full-calendar-grid {
+    min-width: 875px;
+    grid-template-columns: repeat(7, minmax(125px, 1fr));
+  }
+
+  .full-calendar-day { min-height: 160px; }
+}
+
+@media (max-width: 1024px) and (min-width: 921px) {
+  .app-shell { grid-template-columns: 196px minmax(0, 1fr); }
+  .sidebar { width: 196px; }
+
+  .nav-item {
+    min-height: 37px;
+    padding: 7px 8px;
+    font-size: 12.2px;
+  }
+
+  .nav-item span {
+    width: 17px;
+    font-size: 14px;
+  }
+
+  .full-calendar-events-all {
+    grid-template-columns: 1fr;
+  }
+
+  .full-calendar-day { min-height: 155px; }
+}
+
+@media (max-width: 920px) {
+  .nav-item {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
+
+  .nav-item span {
+    width: 18px;
+    font-size: 15px;
+  }
+
+  .daily-kpi-grid .mini-kpi,
+  .full-timeline-kpis .mini-kpi,
+  .brand-stats .mini-kpi,
+  .pic-report-kpis .mini-kpi {
+    min-height: 92px;
+    padding: 12px;
+  }
+
+  .daily-kpi-grid .mini-kpi p,
+  .full-timeline-kpis .mini-kpi p,
+  .brand-stats .mini-kpi p,
+  .pic-report-kpis .mini-kpi p { font-size: 9.5px; }
+
+  .daily-kpi-grid .mini-kpi strong,
+  .full-timeline-kpis .mini-kpi strong,
+  .brand-stats .mini-kpi strong,
+  .pic-report-kpis .mini-kpi strong { font-size: 26px; }
+
+  .daily-kpi-grid .mini-kpi small,
+  .full-timeline-kpis .mini-kpi small,
+  .brand-stats .mini-kpi small,
+  .pic-report-kpis .mini-kpi small { font-size: 11.5px; }
+
+  .full-calendar-day {
+    min-height: 160px;
+    max-height: none !important;
+    height: auto;
+    overflow: visible !important;
+  }
+
+  .full-calendar-events-all {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}
+
+@media (max-width: 680px) {
+  .daily-kpi-grid .mini-kpi,
+  .full-timeline-kpis .mini-kpi,
+  .brand-stats .mini-kpi,
+  .pic-report-kpis .mini-kpi {
+    min-height: 88px;
+    padding: 11px;
+  }
+
+  .daily-kpi-grid .mini-kpi strong,
+  .full-timeline-kpis .mini-kpi strong,
+  .brand-stats .mini-kpi strong,
+  .pic-report-kpis .mini-kpi strong { font-size: 25px; }
+
+  .full-calendar-day {
+    min-height: 150px;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
+/* v0.63: logo Unit On Air jadi putih dan tinggi sejajar */
+.sidebar-unit-logos {
+  border-color: rgba(255,255,255,.14);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+}
+
+.sidebar-unit-logos > div,
+.sidebar-unit-logos div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sidebar-unit-logos img {
+  display: block;
+  flex: 0 0 auto;
+  width: auto !important;
+  height: 20px !important;
+  max-width: 58px;
+  object-fit: contain;
+  object-position: left center;
+  filter: brightness(0) invert(1) opacity(.96) drop-shadow(0 2px 4px rgba(0,0,0,.12));
+}
+
+@media (min-width: 921px) {
+  .sidebar-unit-logos img {
+    height: 20px !important;
+    max-width: 60px;
+  }
+}
+
+@media (max-width: 1366px) and (min-width: 921px) {
+  .sidebar-unit-logos img {
+    height: 19px !important;
+    max-width: 56px;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .sidebar-unit-logos img {
+    height: 18px !important;
+    max-width: 52px;
+  }
+}
+
+@media (max-width: 920px) {
+  .sidebar-unit-logos img {
+    height: 18px !important;
+    max-width: 52px;
+  }
+}
+
+/* v0.64: perbaikan logo UNIT ON AIR agar tidak overlap, khusus MNCTV dibesarkan */
+.sidebar-unit-logos > div,
+.sidebar-unit-logos div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.sidebar-unit-logos img {
+  display: block;
+  flex: 0 1 auto;
+  width: auto !important;
+  height: 18px !important;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left center;
+  filter: brightness(0) invert(1) opacity(.96) drop-shadow(0 2px 4px rgba(0,0,0,.12));
+}
+
+/* Logo MNCTV dibuat sedikit lebih besar agar seimbang secara visual. */
+.sidebar-unit-logos > div img:nth-child(2) {
+  height: 21px !important;
+}
+
+@media (min-width: 921px) {
+  .sidebar-unit-logos > div,
+  .sidebar-unit-logos div {
+    gap: 7px;
+  }
+
+  .sidebar-unit-logos img {
+    height: 15px !important;
+  }
+
+  .sidebar-unit-logos > div img:nth-child(2) {
+    height: 14px !important;
+  }
+}
+
+@media (max-width: 1180px) and (min-width: 921px) {
+  .sidebar-unit-logos > div,
+  .sidebar-unit-logos div {
+    gap: 7px;
+  }
+
+  .sidebar-unit-logos img {
+    height: 15px !important;
+  }
+
+  .sidebar-unit-logos > div img:nth-child(2) {
+    height: 20px !important;
+  }
+}
+
+@media (max-width: 920px) {
+  .sidebar-unit-logos > div,
+  .sidebar-unit-logos div {
+    justify-content: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .sidebar-unit-logos img {
+    height: 17px !important;
+  }
+
+  .sidebar-unit-logos > div img:nth-child(2) {
+    height: 19px !important;
+  }
+}
