@@ -32,8 +32,8 @@
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" rel="modulepreload"/>
-<link href="app.js?v=122" rel="modulepreload"/>
-<link href="style.css?v=122" rel="stylesheet"/>
+<link href="app.js?v=123" rel="modulepreload"/>
+<link href="style.css?v=123" rel="stylesheet"/>
 </head>
 <body data-active-view="dashboard">
 <section aria-labelledby="authGateTitle" aria-live="polite" class="auth-gate" id="authGate">
@@ -55,11 +55,11 @@
 <div class="auth-card">
 <div class="auth-brand"><span class="auth-brand-icon" aria-hidden="true"><svg class="axon-mark" viewBox="0 0 256 256"><path d="M 256 256 L 128 256 L 0 128 L 128 128 Z"></path><path d="M 256 128 L 128 128 L 0 0 L 128 0 Z"></path></svg></span><div><p>BENEFIT VIRTUAL ADS 3TV</p><strong>VA Ploting Workspace</strong></div></div>
 <h2 id="authGateTitle">Masuk ke workspace</h2>
-<p id="authGateMessage">Masukkan email dan password akun tim.</p>
+<p id="authGateMessage">Masukkan username dan password akun tim.</p>
 <form class="auth-login-form auth-login-form--dynamic" id="authLoginForm" novalidate="">
-<label class="auth-password-field" for="authEmailInput">
-<span>Email akun</span>
-<input autocomplete="username" id="authEmailInput" inputmode="email" placeholder="nama@benefit-virtual-ads.app" required="" type="email"/>
+<label class="auth-password-field" for="authUsernameInput">
+<span>Username</span>
+<input autocapitalize="none" autocomplete="username" id="authUsernameInput" maxlength="32" placeholder="Contoh: adhi" required="" spellcheck="false" type="text"/>
 </label>
 <label class="auth-password-field" for="authPasswordInput">
 <span>Password</span>
@@ -67,7 +67,7 @@
 </label>
 <button class="primary-button auth-login-button" disabled="" id="passwordSignInButton" type="submit">Masuk</button>
 </form>
-<p class="auth-note">Akun baru dibuat melalui menu profil administrator setelah masuk.</p>
+<p class="auth-note">Gunakan username tanpa alamat email. Akun baru dibuat melalui menu profil administrator.</p>
 </div>
 </section>
 <div class="app-shell">
@@ -784,8 +784,8 @@
 </div>
 <div class="profile-form-grid">
 <label>Nama lengkap<input autocomplete="name" id="profileNameInput" maxlength="80" required type="text"/></label>
-<label>Email akun<input autocomplete="email" id="profileEmailInput" required type="email"/></label>
-<label>Password saat ini<input autocomplete="current-password" id="profileCurrentPasswordInput" placeholder="Wajib jika mengganti email/password" type="password"/></label>
+<label>Username<input autocapitalize="none" autocomplete="username" id="profileUsernameInput" maxlength="32" required spellcheck="false" type="text"/><small>Email internal dibuat otomatis dan tidak perlu diisi.</small></label>
+<label>Password saat ini<input autocomplete="current-password" id="profileCurrentPasswordInput" placeholder="Wajib jika mengganti username/password" type="password"/></label>
 <label>Password baru<input autocomplete="new-password" id="profileNewPasswordInput" minlength="6" placeholder="Kosongkan jika tidak diubah" type="password"/></label>
 <label>Konfirmasi password baru<input autocomplete="new-password" id="profileConfirmPasswordInput" minlength="6" placeholder="Ulangi password baru" type="password"/></label>
 </div>
@@ -807,7 +807,7 @@
 <p class="section-label">KARYAWAN BARU</p><h4>Tambah akun tim</h4><p>Akun baru otomatis muncul pada daftar PIC dan Chat Tim.</p>
 <form class="create-account-form" id="createAccountForm">
 <label>Nama lengkap<input id="newAccountNameInput" maxlength="80" required type="text"/></label>
-<label>Email akun<input id="newAccountEmailInput" required type="email"/></label>
+<label>Username<input autocapitalize="none" id="newAccountUsernameInput" maxlength="32" placeholder="Contoh: budi" required spellcheck="false" type="text"/><small>Login cukup memakai username ini.</small></label>
 <label>Password sementara<input id="newAccountPasswordInput" minlength="6" required type="password"/></label>
 <label>Peran<select id="newAccountRoleInput"><option value="pic">PIC</option><option value="admin">Administrator</option></select></label>
 <button class="primary-button" type="submit">+ Buat akun</button>
@@ -849,6 +849,6 @@
 </defs>
 </svg>
 <script defer="" src="update-check.js?v=55"></script>
-<script src="app.js?v=122" type="module"></script>
+<script src="app.js?v=123" type="module"></script>
 </body>
 </html>

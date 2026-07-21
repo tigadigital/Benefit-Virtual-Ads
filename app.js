@@ -1,7 +1,7 @@
 /*
   VA Benefit Ploting v0.50
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
-  - Firebase Authentication Email/Password memakai direktori akun dinamis untuk karyawan dan PIC.
+  - Firebase Authentication memakai username internal + password dengan direktori akun dinamis untuk karyawan dan PIC.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
   - Filter periode memakai Tahun + Bulan, serta Report PIC memakai Tahun + Kuartal.
   - Performa awal dioptimalkan dengan render halaman aktif, cache aman per akun, dan sinkronisasi tanpa tulis ulang saat memuat data.
@@ -27,13 +27,49 @@ const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v28-settings";
 const LOCAL_CACHE_PREFIX = "va-benefit-ploting-v30-cache";
 const CACHE_SCHEMA_VERSION = 30;
 const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
+const INTERNAL_AUTH_DOMAIN = "benefit-virtual-ads.app";
+
+function normalizeAccountUsername(value) {
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase("id-ID")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, ".")
+    .replace(/[^a-z0-9._-]/g, "")
+    .replace(/[._-]{2,}/g, ".")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 32);
+}
+
+function internalEmailFromUsername(value) {
+  const username = normalizeAccountUsername(value);
+  return username ? `${username}@${INTERNAL_AUTH_DOMAIN}` : "";
+}
+
+function usernameFromInternalEmail(value) {
+  const email = String(value || "").trim().toLocaleLowerCase("id-ID");
+  if (!email) return "";
+  return normalizeAccountUsername(email.split("@")[0]);
+}
+
+function loginEmailFromIdentifier(value) {
+  const identifier = String(value || "").trim().toLocaleLowerCase("id-ID");
+  if (identifier.includes("@")) return identifier;
+  return internalEmailFromUsername(identifier);
+}
+
+function validAccountUsername(value) {
+  const username = normalizeAccountUsername(value);
+  return username.length >= 2 && username.length <= 32;
+}
 
 // Akun lama dipakai sebagai fallback dan dimigrasikan otomatis ke direktori akun dinamis.
 // Semua akun baru selanjutnya disimpan pada Realtime Database > teamAccounts.
 const LEGACY_TEAM_ACCOUNTS = Object.freeze({
-  rakha: Object.freeze({ id: "rakha", name: "Rakha", email: "rakha@benefit-virtual-ads.app", avatar: "assets/profile-rakha.jpg", role: "admin", active: true }),
-  adhi: Object.freeze({ id: "adhi", name: "Adhi", email: "adhi@benefit-virtual-ads.app", avatar: "assets/profile-adhi.jpg", role: "admin", active: true }),
-  rian: Object.freeze({ id: "rian", name: "Rian", email: "rian@benefit-virtual-ads.app", avatar: "assets/profile-rian.jpg", role: "admin", active: true })
+  rakha: Object.freeze({ id: "rakha", username: "rakha", name: "Rakha", email: "rakha@benefit-virtual-ads.app", avatar: "assets/profile-rakha.jpg", role: "admin", active: true }),
+  adhi: Object.freeze({ id: "adhi", username: "adhi", name: "Adhi", email: "adhi@benefit-virtual-ads.app", avatar: "assets/profile-adhi.jpg", role: "admin", active: true }),
+  rian: Object.freeze({ id: "rian", username: "rian", name: "Rian", email: "rian@benefit-virtual-ads.app", avatar: "assets/profile-rian.jpg", role: "admin", active: true })
 });
 const LEGACY_TEAM_ACCOUNT_BY_EMAIL = Object.freeze(
   Object.values(LEGACY_TEAM_ACCOUNTS).reduce((accounts, account) => {
@@ -536,11 +572,13 @@ function normalizeTeamAccountRecord(record = {}, key = "") {
   const email = normalizeWhitespace(record.email).toLocaleLowerCase("id-ID");
   const name = normalizeWhitespace(record.name || record.displayName || email.split("@")[0] || "Akun Tim");
   const legacy = LEGACY_TEAM_ACCOUNT_BY_EMAIL[email];
+  const username = normalizeAccountUsername(record.username || legacy?.username || usernameFromInternalEmail(email) || record.id || name);
   return {
     uid: String(record.uid || key || ""),
-    id: String(record.id || legacy?.id || key || email || name).trim(),
+    id: String(record.id || legacy?.id || key || username || email || name).trim(),
+    username,
     name,
-    email,
+    email: email || internalEmailFromUsername(username),
     avatar: String(record.avatar || legacy?.avatar || "").trim(),
     role: record.role === "admin" || legacy?.role === "admin" ? "admin" : "pic",
     active: record.active !== false && !record.deletedAt,
@@ -959,12 +997,15 @@ function setFirebaseStatus(stateName, text) {
 
 function updateAuthForm() {
   const signInButton = $("#passwordSignInButton");
-  const emailInput = $("#authEmailInput");
+  const usernameInput = $("#authUsernameInput");
   const passwordInput = $("#authPasswordInput");
   if (!signInButton) return;
-  const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(emailInput?.value || "").trim());
+  const rawIdentifier = String(usernameInput?.value || "").trim();
+  const hasUsername = rawIdentifier.includes("@")
+    ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawIdentifier)
+    : validAccountUsername(rawIdentifier);
   const hasPassword = String(passwordInput?.value || "").length >= 6;
-  signInButton.disabled = !firebaseBootstrapComplete || !hasEmail || !hasPassword;
+  signInButton.disabled = !firebaseBootstrapComplete || !hasUsername || !hasPassword;
   signInButton.textContent = firebaseBootstrapComplete ? "Masuk" : "Menyiapkan Firebase...";
 }
 
@@ -1568,6 +1609,7 @@ function buildLegacyProfile(user, legacy) {
   return cleanFirebaseValue({
     uid: user.uid,
     id: legacy.id,
+    username: legacy.username || usernameFromInternalEmail(user.email || legacy.email),
     name: legacy.name,
     email: String(user.email || legacy.email).toLocaleLowerCase("id-ID"),
     avatar: legacy.avatar || "",
@@ -1603,6 +1645,7 @@ async function ensureCurrentTeamProfile() {
       ...(account || buildLegacyProfile(currentFirebaseUser, legacy)),
       uid: currentFirebaseUser.uid,
       id: source.id,
+      username: source.username || usernameFromInternalEmail(email),
       name: source.name,
       email,
       avatar: source.avatar || "",
@@ -1670,7 +1713,7 @@ function renderProfileModal() {
   const preview = $("#profileAvatarPreview");
   if (preview) preview.innerHTML = accountAvatarMarkup({ ...account, avatar: profileAvatarDraft === "__REMOVE__" ? "" : (profileAvatarDraft || account.avatar) }, "profile-avatar-preview-image");
   if ($("#profileNameInput")) $("#profileNameInput").value = account.name || "";
-  if ($("#profileEmailInput")) $("#profileEmailInput").value = account.email || currentFirebaseUser.email || "";
+  if ($("#profileUsernameInput")) $("#profileUsernameInput").value = account.username || usernameFromInternalEmail(account.email || currentFirebaseUser.email) || "";
   if ($("#profileRoleLabel")) $("#profileRoleLabel").textContent = account.role === "admin" ? "Administrator" : "PIC";
   const adminTab = $("#profileAccountsTabButton");
   if (adminTab) adminTab.hidden = !currentAccountIsAdmin();
@@ -1718,12 +1761,20 @@ async function saveCurrentProfile(event) {
   const user = currentFirebaseUser;
   if (!account || !user) return;
   const name = normalizeWhitespace($("#profileNameInput")?.value).slice(0, 80);
-  const email = normalizeWhitespace($("#profileEmailInput")?.value).toLocaleLowerCase("id-ID");
+  const username = normalizeAccountUsername($("#profileUsernameInput")?.value);
+  const email = internalEmailFromUsername(username);
   const currentPassword = $("#profileCurrentPasswordInput")?.value || "";
   const newPassword = $("#profileNewPasswordInput")?.value || "";
   const confirmPassword = $("#profileConfirmPasswordInput")?.value || "";
-  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showToast({ message: "Lengkapi nama dan email yang valid.", type: "warning" });
+  if (!name || !validAccountUsername(username)) {
+    showToast({ message: "Lengkapi nama dan username minimal 2 karakter.", type: "warning" });
+    return;
+  }
+  const duplicateUsername = allTeamAccounts({ includeInactive: true }).some((item) => (
+    item.id !== account.id && normalizeAccountUsername(item.username || usernameFromInternalEmail(item.email)) === username
+  ));
+  if (duplicateUsername) {
+    showToast({ message: "Username tersebut sudah digunakan akun lain.", type: "warning" });
     return;
   }
   if (newPassword && (newPassword.length < 6 || newPassword !== confirmPassword)) {
@@ -1740,11 +1791,14 @@ async function saveCurrentProfile(event) {
     const previousName = account.name;
     const avatar = profileAvatarDraft === "__REMOVE__" ? "" : (profileAvatarDraft || account.avatar || "");
     await update(realtimeTeamAccountsRef, {
-      [key]: cleanFirebaseValue({ ...account, uid: user.uid, id: account.id, name, email, avatar, active: true, picAliases: unique([...(account.picAliases || []), ...(previousName !== name ? [previousName] : [])]), updatedAt: nowIso() })
+      [key]: cleanFirebaseValue({ ...account, uid: user.uid, id: account.id, username, name, email, avatar, active: true, picAliases: unique([...(account.picAliases || []), ...(previousName !== name ? [previousName] : [])]), updatedAt: nowIso() })
     });
     state.masters.pics = sortText(unique([...(state.masters.pics || []), name]));
     saveState();
-    recordAuditLog({ action: "PROFILE_UPDATED", entityType: "account", entityId: account.id, target: name, summary: `Profil ${name} diperbarui.`, changes: [{ field: "Nama", before: previousName, after: name }] });
+    recordAuditLog({ action: "PROFILE_UPDATED", entityType: "account", entityId: account.id, target: name, summary: `Profil ${name} diperbarui.`, changes: [
+      { field: "Nama", before: previousName, after: name },
+      { field: "Username", before: account.username || usernameFromInternalEmail(account.email), after: username }
+    ].filter((change) => change.before !== change.after) });
     profileAvatarDraft = "";
     if ($("#profileCurrentPasswordInput")) $("#profileCurrentPasswordInput").value = "";
     if ($("#profileNewPasswordInput")) $("#profileNewPasswordInput").value = "";
@@ -1755,7 +1809,7 @@ async function saveCurrentProfile(event) {
     const message = error?.code === "auth/requires-recent-login" || error?.code === "auth/invalid-credential"
       ? "Password saat ini tidak sesuai."
       : error?.code === "auth/email-already-in-use"
-        ? "Email tersebut sudah digunakan akun lain."
+        ? "Username tersebut sudah digunakan akun lain."
         : "Profil belum dapat diperbarui. Periksa koneksi dan Firebase Rules.";
     showToast({ message, type: "error" });
   }
@@ -1768,15 +1822,16 @@ async function createTeamAccount(event) {
     return;
   }
   const name = normalizeWhitespace($("#newAccountNameInput")?.value).slice(0, 80);
-  const email = normalizeWhitespace($("#newAccountEmailInput")?.value).toLocaleLowerCase("id-ID");
+  const username = normalizeAccountUsername($("#newAccountUsernameInput")?.value);
+  const email = internalEmailFromUsername(username);
   const password = $("#newAccountPasswordInput")?.value || "";
   const role = $("#newAccountRoleInput")?.value === "admin" ? "admin" : "pic";
-  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 6) {
-    showToast({ message: "Isi nama, email valid, dan password sementara minimal 6 karakter.", type: "warning" });
+  if (!name || !validAccountUsername(username) || password.length < 6) {
+    showToast({ message: "Isi nama, username minimal 2 karakter, dan password sementara minimal 6 karakter.", type: "warning" });
     return;
   }
-  if (allTeamAccounts({ includeInactive: true }).some((account) => account.email === email && account.active)) {
-    showToast({ message: "Email tersebut sudah terdaftar sebagai akun aktif.", type: "warning" });
+  if (allTeamAccounts({ includeInactive: true }).some((account) => normalizeAccountUsername(account.username || usernameFromInternalEmail(account.email)) === username)) {
+    showToast({ message: "Username tersebut sudah terdaftar.", type: "warning" });
     return;
   }
   let secondaryApp = null;
@@ -1789,7 +1844,8 @@ async function createTeamAccount(event) {
     await updateProfile(credential.user, { displayName: name });
     const record = cleanFirebaseValue({
       uid: credential.user.uid,
-      id: slugifyAccountId(name),
+      id: username,
+      username,
       name,
       email,
       avatar: "",
@@ -1811,7 +1867,7 @@ async function createTeamAccount(event) {
     if (createdSecondaryUser) await deleteUser(createdSecondaryUser).catch(() => {});
     console.error("Akun baru tidak dapat dibuat.", error);
     const message = error?.code === "auth/email-already-in-use"
-      ? "Email tersebut sudah digunakan di Firebase Authentication."
+      ? "Username tersebut sudah digunakan di Firebase Authentication."
       : error?.code === "auth/weak-password"
         ? "Password sementara terlalu lemah."
         : "Akun belum dapat dibuat. Periksa Firebase Authentication dan Rules teamAccounts.";
@@ -1831,7 +1887,7 @@ function renderAccountManagementList() {
     const status = account.active ? "Aktif" : "Nonaktif";
     return `<article class="team-account-card ${account.active ? "is-active" : "is-inactive"}">
       ${accountAvatarMarkup(account, "team-account-avatar")}
-      <div class="team-account-copy"><strong>${escapeHTML(account.name)}</strong><span>${escapeHTML(account.email)}</span><small>${account.role === "admin" ? "Administrator" : "PIC"} · ${status}</small></div>
+      <div class="team-account-copy"><strong>${escapeHTML(account.name)}</strong><span>@${escapeHTML(account.username || usernameFromInternalEmail(account.email))}</span><small>${account.role === "admin" ? "Administrator" : "PIC"} · ${status}</small></div>
       <div class="team-account-actions">${isSelf ? `<span class="team-account-self">Akun kamu</span>` : `<button class="secondary-button" data-account-toggle="${escapeHTML(account.id)}" data-account-active="${String(account.active)}" type="button">${account.active ? "Nonaktifkan" : "Aktifkan"}</button>`}</div>
     </article>`;
   }).join("") : `<div class="team-account-empty">Belum ada akun tim.</div>`;
@@ -2157,14 +2213,15 @@ function handleRealtimeDatabaseError(error) {
 
 async function signInWithPassword(event) {
   event?.preventDefault();
-  const emailInput = $("#authEmailInput");
+  const usernameInput = $("#authUsernameInput");
   const passwordInput = $("#authPasswordInput");
   const signInButton = $("#passwordSignInButton");
-  const email = normalizeWhitespace(emailInput?.value).toLocaleLowerCase("id-ID");
+  const identifier = normalizeWhitespace(usernameInput?.value);
+  const email = loginEmailFromIdentifier(identifier);
   const password = passwordInput?.value || "";
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 6) {
-    setAuthGate(true, "Masukkan email akun dan password minimal 6 karakter.");
+  if ((!identifier.includes("@") && !validAccountUsername(identifier)) || !email || password.length < 6) {
+    setAuthGate(true, "Masukkan username dan password minimal 6 karakter.");
     return;
   }
 
@@ -2180,8 +2237,8 @@ async function signInWithPassword(event) {
   } catch (error) {
     console.error("Login akun tim gagal.", error);
     const loginMessage = error?.code === "auth/invalid-credential"
-      ? "Email atau password tidak sesuai."
-      : "Login belum berhasil. Pastikan Email/Password aktif di Firebase Authentication.";
+      ? "Username atau password tidak sesuai."
+      : "Login belum berhasil. Pastikan metode Email/Password aktif di Firebase Authentication.";
     setAuthGate(true, loginMessage);
     showToast({ message: "Login belum berhasil.", type: "error" });
   } finally {
@@ -2200,7 +2257,7 @@ async function signOutFromFirebase() {
 
 function initializeFirebaseRealtime() {
   firebaseBootstrapComplete = true;
-  setAuthGate(true, "Masukkan email dan password akun tim.");
+  setAuthGate(true, "Masukkan username dan password akun tim.");
   setFirebaseStatus("connecting", "Menunggu login");
 
   onAuthStateChanged(firebaseAuth, (user) => {
@@ -2220,7 +2277,7 @@ function initializeFirebaseRealtime() {
       state.masters = normalizeMasters(defaultMasters, []);
       renderAll();
       setFirebaseStatus("connecting", "Menunggu login");
-      setAuthGate(true, "Masukkan email dan password akun tim.");
+      setAuthGate(true, "Masukkan username dan password akun tim.");
       return;
     }
 
@@ -5026,7 +5083,7 @@ function exportPicExcel() {
 
 function bindAuthenticationEvents() {
   $("#authLoginForm")?.addEventListener("submit", signInWithPassword);
-  $("#authEmailInput")?.addEventListener("input", updateAuthForm);
+  $("#authUsernameInput")?.addEventListener("input", updateAuthForm);
   $("#authPasswordInput")?.addEventListener("input", updateAuthForm);
   $("#profileMenuButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
