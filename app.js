@@ -1,14 +1,26 @@
 /*
   VA Benefit Ploting v0.50
   - Firebase Realtime Database menjadi sumber data bersama secara realtime.
-  - Firebase Authentication Email/Password membatasi akses tiga akun internal.
+  - Firebase Authentication Email/Password memakai direktori akun dinamis untuk karyawan dan PIC.
   - Tanggal operasional otomatis mengikuti tanggal hari ini saat aplikasi dibuka.
   - Filter periode memakai Tahun + Bulan, serta Report PIC memakai Tahun + Kuartal.
   - Performa awal dioptimalkan dengan render halaman aktif, cache aman per akun, dan sinkronisasi tanpa tulis ulang saat memuat data.
 */
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  updateEmail,
+  updatePassword,
+  deleteUser,
+  reauthenticateWithCredential,
+  EmailAuthProvider
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
 const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v28-settings";
@@ -16,15 +28,15 @@ const LOCAL_CACHE_PREFIX = "va-benefit-ploting-v30-cache";
 const CACHE_SCHEMA_VERSION = 30;
 const REALTIME_DATABASE_ROOT = "vaBenefitPloting/shared";
 
-// Akun internal. Password sengaja tidak disimpan di kode website.
-// Buat tiga akun ini di Firebase Authentication > Users sebelum aplikasi dipakai.
-const TEAM_ACCOUNTS = Object.freeze({
-  rakha: Object.freeze({ id: "rakha", name: "Rakha", email: "rakha@benefit-virtual-ads.app" }),
-  adhi: Object.freeze({ id: "adhi", name: "Adhi", email: "adhi@benefit-virtual-ads.app" }),
-  rian: Object.freeze({ id: "rian", name: "Rian", email: "rian@benefit-virtual-ads.app" })
+// Akun lama dipakai sebagai fallback dan dimigrasikan otomatis ke direktori akun dinamis.
+// Semua akun baru selanjutnya disimpan pada Realtime Database > teamAccounts.
+const LEGACY_TEAM_ACCOUNTS = Object.freeze({
+  rakha: Object.freeze({ id: "rakha", name: "Rakha", email: "rakha@benefit-virtual-ads.app", avatar: "assets/profile-rakha.jpg", role: "admin", active: true }),
+  adhi: Object.freeze({ id: "adhi", name: "Adhi", email: "adhi@benefit-virtual-ads.app", avatar: "assets/profile-adhi.jpg", role: "admin", active: true }),
+  rian: Object.freeze({ id: "rian", name: "Rian", email: "rian@benefit-virtual-ads.app", avatar: "assets/profile-rian.jpg", role: "admin", active: true })
 });
-const TEAM_ACCOUNT_BY_EMAIL = Object.freeze(
-  Object.values(TEAM_ACCOUNTS).reduce((accounts, account) => {
+const LEGACY_TEAM_ACCOUNT_BY_EMAIL = Object.freeze(
+  Object.values(LEGACY_TEAM_ACCOUNTS).reduce((accounts, account) => {
     accounts[account.email] = account;
     return accounts;
   }, {})
@@ -50,6 +62,10 @@ const realtimeRootRef = ref(realtimeDb, REALTIME_DATABASE_ROOT);
 const realtimeConnectionRef = ref(realtimeDb, ".info/connected");
 const realtimeMastersRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/masters`);
 const realtimeSchedulesRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/schedules`);
+const realtimeAuditLogsRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/auditLogs`);
+const realtimeMessagesRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/messages`);
+const realtimeRemindersRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/reminders`);
+const realtimeTeamAccountsRef = ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/teamAccounts`);
 const getLocalIsoDate = () => {
   const now = new Date();
   const local = new Date(now.getTime() - (now.getTimezoneOffset() * 60_000));
@@ -99,6 +115,59 @@ const nowIso = () => new Date().toISOString();
 const sortText = (values) => [...values].sort((a, b) => a.localeCompare(b, "id"));
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
 
+const THEME_STORAGE_KEY = "va-benefit-color-theme";
+
+function currentColorTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function savedColorTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return saved === "dark" || saved === "light" ? saved : "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function updateThemeToggleControls(theme) {
+  const darkModeActive = theme === "dark";
+  const nextLabel = darkModeActive ? "Mode terang" : "Mode gelap";
+  const actionLabel = darkModeActive ? "Aktifkan mode terang" : "Aktifkan mode gelap";
+  $$('[data-theme-toggle]').forEach((button) => {
+    button.setAttribute("aria-pressed", String(darkModeActive));
+    button.setAttribute("aria-label", actionLabel);
+    button.title = actionLabel;
+    const label = button.querySelector("[data-theme-toggle-label]");
+    if (label) label.textContent = nextLabel;
+  });
+}
+
+function applyColorTheme(theme, persist = true) {
+  const normalizedTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = normalizedTheme;
+  document.documentElement.style.colorScheme = normalizedTheme;
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.content = normalizedTheme === "dark" ? "#1C3555" : "#075AA8";
+  updateThemeToggleControls(normalizedTheme);
+  if (!persist) return;
+  try { localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme); } catch (error) { /* Theme persistence is optional. */ }
+}
+
+function bindThemeEvents() {
+  applyColorTheme(currentColorTheme(), false);
+  $$('[data-theme-toggle]').forEach((button) => {
+    button.addEventListener("click", () => {
+      applyColorTheme(currentColorTheme() === "dark" ? "light" : "dark");
+    });
+  });
+
+  const themeMedia = window.matchMedia?.("(prefers-color-scheme: dark)");
+  themeMedia?.addEventListener?.("change", (event) => {
+    if (!savedColorTheme()) applyColorTheme(event.matches ? "dark" : "light", false);
+  });
+}
+
 let state = loadState();
 let activeView = "dashboard";
 let filters = {
@@ -106,16 +175,20 @@ let filters = {
   batch: { query: "", year: "", month: "", unit: "", page: 1, perPage: 20 },
   full: { year: "", month: "", unit: "", brand: "" },
   brand: { brand: "", year: "", month: "", unit: "", program: "", format: "" },
-  pic: { pic: "", year: "", quarter: "" }
+  pic: { pic: "", year: "", quarter: "" },
+  audit: { query: "", actor: "", action: "" }
 };
-let toastTimer;
+let toastSequence = 0;
 let unsubscribeMasters = null;
 let unsubscribeSchedules = null;
+let unsubscribeAuditLogs = null;
+let unsubscribeMessages = null;
+let unsubscribeReminders = null;
+let unsubscribeTeamAccounts = null;
 let unsubscribeConnection = null;
 let firebaseLoadTimeout = null;
 let currentFirebaseUser = null;
 let firebaseBootstrapComplete = false;
-let selectedTeamAccountId = "rakha";
 let firebaseMasterLoaded = false;
 let firebaseSchedulesLoaded = false;
 let firebaseSyncQueued = false;
@@ -129,9 +202,34 @@ let legacyImportSession = null;
 let sheetJsLoadingPromise = null;
 let html2CanvasLoadingPromise = null;
 let legacyImportInProgress = false;
+let auditLogs = [];
+let teamMessages = [];
+let teamReminders = [];
+let teamChatReadSyncInProgress = false;
+let activeIncomingReminderId = "";
+let teamChatState = { selectedRecipientId: "", reminderComposerOpen: false, panelOpen: false };
+let teamAccounts = {};
+let teamAccountsLoaded = false;
+let profileMenuOpen = false;
+let profileActiveTab = "profile";
+let profileAvatarDraft = "";
+let accountDeletionInProgress = false;
 
 // Pengaturan generator WA hanya berlaku selama sesi dan tidak mengubah data ploting utama.
 let waGeneratorState = { selectedProgramKey: "", assignments: {} };
+
+// Tanggal yang sedang dipilih pada kalender mobile. Hanya agenda tanggal ini yang ditampilkan.
+const mobileCalendarSelections = { full: "", brand: "" };
+
+// Report mobile dibuka bertahap agar halaman tidak memuat daftar panjang sekaligus.
+const mobilePicReportState = {
+  sections: { overview: true, scope: false, detail: false },
+  detailLimit: 8
+};
+
+function isMobileAppLayout() {
+  return Boolean(window.matchMedia?.("(max-width: 760px)")?.matches);
+}
 
 // Pemilih multi-tanggal hanya dipakai pada modal Tambah/Edit Ploting.
 // Tanggal yang dipilih akan ditambahkan sebagai baris jadwal terpisah.
@@ -408,10 +506,22 @@ function unitLabelMarkup(unit, variant = "default") {
   // Untuk unit yang memiliki logo, tampilkan logo saja agar label tidak berulang.
   // Nama unit tetap tersedia melalui alt, title, dan aria-label untuk aksesibilitas.
   if (src) {
-    return `<span class="unit-label unit-label--${variant} unit-label--logo-only" title="${safeUnit}" aria-label="${safeUnit}"><img class="unit-logo" src="${src}" alt="${safeUnit}" /></span>`;
+    return `<span class="unit-label unit-label--${variant} unit-label--logo-only" title="${safeUnit}" aria-label="${safeUnit}"><img class="unit-logo" src="${src}" alt="${safeUnit}" loading="lazy" decoding="async" onerror="this.parentElement.classList.add('unit-label--fallback');this.remove();" /><span class="unit-label-text unit-logo-fallback">${safeUnit}</span></span>`;
   }
 
   return `<span class="unit-label unit-label--${variant}" title="${safeUnit}" aria-label="${safeUnit}"><span class="unit-text-mark">${escapeHTML(value.charAt(0).toUpperCase())}</span><span class="unit-label-text">${safeUnit}</span></span>`;
+}
+
+function accountAvatarMarkup(account, className = "") {
+  const safeName = escapeHTML(account?.name || "Akun");
+  const avatar = String(account?.avatar || "").trim();
+  if (avatar) return `<span class="account-avatar ${className}"><img src="${escapeHTML(avatar)}" alt="${safeName}" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/></span>`;
+  const initials = (account?.name || "A").split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word.charAt(0)).join("").toUpperCase();
+  return `<span class="account-avatar account-avatar--initials ${className}" aria-label="${safeName}">${escapeHTML(initials || "A")}</span>`;
+}
+
+function activePicAccountNames() {
+  return sortText(unique(allTeamAccounts().map((account) => account.name)));
 }
 
 function dashboardGreetingLabel() {
@@ -422,10 +532,141 @@ function dashboardGreetingLabel() {
   return "malam";
 }
 
+function normalizeTeamAccountRecord(record = {}, key = "") {
+  const email = normalizeWhitespace(record.email).toLocaleLowerCase("id-ID");
+  const name = normalizeWhitespace(record.name || record.displayName || email.split("@")[0] || "Akun Tim");
+  const legacy = LEGACY_TEAM_ACCOUNT_BY_EMAIL[email];
+  return {
+    uid: String(record.uid || key || ""),
+    id: String(record.id || legacy?.id || key || email || name).trim(),
+    name,
+    email,
+    avatar: String(record.avatar || legacy?.avatar || "").trim(),
+    role: record.role === "admin" || legacy?.role === "admin" ? "admin" : "pic",
+    active: record.active !== false && !record.deletedAt,
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+    deletedAt: String(record.deletedAt || ""),
+    picAliases: unique(Array.isArray(record.picAliases) ? record.picAliases.map(normalizeWhitespace) : []).filter(Boolean)
+  };
+}
+
+function mergedTeamAccounts() {
+  const merged = new Map();
+  Object.values(LEGACY_TEAM_ACCOUNTS).forEach((account) => merged.set(account.id, normalizeTeamAccountRecord(account, account.id)));
+  Object.entries(teamAccounts || {}).forEach(([key, raw]) => {
+    const account = normalizeTeamAccountRecord(raw, key);
+    const legacyByEmail = LEGACY_TEAM_ACCOUNT_BY_EMAIL[account.email];
+    if (legacyByEmail && merged.has(legacyByEmail.id)) merged.delete(legacyByEmail.id);
+    merged.set(account.id, account);
+  });
+  return [...merged.values()];
+}
+
+function allTeamAccounts({ includeInactive = false } = {}) {
+  return mergedTeamAccounts()
+    .filter((account) => includeInactive || account.active)
+    .sort((a, b) => a.name.localeCompare(b.name, "id"));
+}
+
+function currentTeamAccount() {
+  const uid = String(currentFirebaseUser?.uid || "");
+  const email = String(currentFirebaseUser?.email || "").toLocaleLowerCase("id-ID");
+  return allTeamAccounts({ includeInactive: true }).find((account) => (
+    (uid && account.uid === uid) || (email && account.email === email)
+  )) || null;
+}
+
 function currentTeamDisplayName() {
-  const email = String(currentFirebaseUser?.email || "").toLowerCase();
-  const account = TEAM_ACCOUNT_BY_EMAIL[email];
-  return account?.name || currentFirebaseUser?.displayName || "Tim VA";
+  return currentTeamAccount()?.name || currentFirebaseUser?.displayName || currentFirebaseUser?.email || "Tim VA";
+}
+
+function currentTeamAccountId() {
+  return currentTeamAccount()?.id || "";
+}
+
+function teamAccountById(accountId, includeInactive = true) {
+  return allTeamAccounts({ includeInactive }).find((account) => account.id === String(accountId || "")) || null;
+}
+
+function availableTeamRecipients() {
+  const currentId = currentTeamAccountId();
+  return allTeamAccounts().filter((account) => account.id !== currentId);
+}
+
+function ensureSelectedTeamRecipient() {
+  const recipients = availableTeamRecipients();
+  if (!recipients.some((account) => account.id === teamChatState.selectedRecipientId)) {
+    teamChatState.selectedRecipientId = recipients[0]?.id || "";
+  }
+  return teamAccountById(teamChatState.selectedRecipientId, false);
+}
+
+function currentTeamPicName() {
+  return currentTeamAccount()?.name || "";
+}
+
+function isCurrentTeamPic(plot) {
+  const account = currentTeamAccount();
+  const plotPic = normalizeWhitespace(plot?.pic).toLocaleLowerCase("id-ID");
+  const names = unique([account?.name, ...(account?.picAliases || [])])
+    .map((name) => normalizeWhitespace(name).toLocaleLowerCase("id-ID"))
+    .filter(Boolean);
+  return Boolean(plotPic && names.includes(plotPic));
+}
+
+function currentPicOverduePlannedPlots(referenceDate = getLocalIsoDate()) {
+  return sortByDate(state.plotings.filter((plot) => (
+    isCurrentTeamPic(plot) &&
+    plot.airingStatus === "Planned" &&
+    Boolean(plot.planAiring) &&
+    plot.planAiring < referenceDate
+  )));
+}
+
+function renderCurrentPicOverdueReminderCard() {
+  const card = $("#picOverdueReminderCard");
+  if (!card) return;
+
+  const overduePlots = currentFirebaseUser ? currentPicOverduePlannedPlots() : [];
+  if (!overduePlots.length) {
+    card.hidden = true;
+    card.innerHTML = "";
+    document.body.classList.remove("has-pic-overdue-reminder");
+    return;
+  }
+
+  const visiblePlots = overduePlots.slice(0, 4);
+  const remainingCount = Math.max(0, overduePlots.length - visiblePlots.length);
+  const overdueSpot = sum(overduePlots.map((plot) => plot.spot));
+  const picName = currentTeamPicName();
+
+  card.innerHTML = `
+    <div class="pic-overdue-card-head">
+      <span class="pic-overdue-card-icon" aria-hidden="true">!</span>
+      <div>
+        <p>REMINDER PIC</p>
+        <h3>Planned melewati tanggal</h3>
+      </div>
+      <span class="pic-overdue-card-count" aria-label="${overduePlots.length} jadwal">${overduePlots.length}</span>
+    </div>
+    <p class="pic-overdue-card-summary"><strong>${escapeHTML(picName)}</strong> memiliki ${overduePlots.length} jadwal terlambat dengan total ${overdueSpot} spot.</p>
+    <div class="pic-overdue-card-list">
+      ${visiblePlots.map((plot) => `
+        <article class="pic-overdue-card-item">
+          <div>
+            <strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong>
+            <small>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · ${Number(plot.spot)} spot</small>
+          </div>
+          <button class="pic-overdue-card-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur</button>
+        </article>
+      `).join("")}
+    </div>
+    ${remainingCount ? `<p class="pic-overdue-card-more">+${remainingCount} jadwal terlambat lainnya</p>` : ""}
+    <button class="pic-overdue-card-master" data-go-view="plotings" type="button">Buka Master Ploting</button>
+  `;
+  card.hidden = false;
+  document.body.classList.add("has-pic-overdue-reminder");
 }
 
 function renderDashboardGreeting(todayPlots, upcomingPlots, attentionPlots) {
@@ -438,47 +679,26 @@ function renderDashboardGreeting(todayPlots, upcomingPlots, attentionPlots) {
   const operationDateLabel = formatDate(state.operationDate, { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
   const todaySpot = sum(todayPlots.map((plot) => plot.spot));
   const todayBrandCount = unique(todayPlots.map((plot) => plot.brand)).length;
-  const alertSpotToday = todayPlots.filter((plot) => isAlertSpot(plot.spot, plot.airingStatus));
-  const openToday = todayPlots.filter((plot) => !isFinalAiringStatus(plot.airingStatus));
+  const runningSpot = todayPlots.filter((plot) => !isInactiveAiringStatus(plot.airingStatus)).reduce((total, plot) => total + Number(plot.spot || 0), 0);
 
-  greetingMeta.textContent = `Tanggal operasional: ${operationDateLabel}`;
-  greetingTitle.textContent = `Selamat ${dashboardGreetingLabel()}, ${currentTeamDisplayName()}.`;
-  reminderLead.textContent = todayPlots.length
-    ? `Hari ini ada ${todayPlots.length} jadwal, ${todaySpot} spot, dan ${todayBrandCount} brand yang perlu dipantau.`
-    : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
+  const mobileGreeting = window.matchMedia?.("(max-width: 760px)")?.matches;
+  const greetingName = currentTeamDisplayName();
+  const greetingPeriod = dashboardGreetingLabel();
+  greetingMeta.textContent = `Tanggal operasional — ${operationDateLabel}`;
+  if (mobileGreeting) {
+    greetingTitle.innerHTML = `<span class="mobile-greeting-name">Hi, ${escapeHTML(greetingName)}!</span><small class="mobile-greeting-period">selamat ${escapeHTML(greetingPeriod)}</small>`;
+    reminderLead.textContent = todayPlots.length
+      ? `Hari ini ada ${todayPlots.length} jadwal, ${todaySpot} spot, dan ${todayBrandCount} brand yang perlu dipantau.`
+      : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
+  } else {
+    greetingTitle.textContent = `Selamat ${greetingPeriod}, ${greetingName}.`;
+    reminderLead.innerHTML = todayPlots.length
+      ? `Hari ini ada <strong>${todayPlots.length} jadwal</strong>, <strong>${todaySpot} spot</strong>, dan <strong>${todayBrandCount} brand</strong> yang perlu dipantau.`
+      : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
+  }
 
-  const reminders = [
-    {
-      tone: attentionPlots.length ? "warning" : "safe",
-      title: "Update status tayang",
-      value: attentionPlots.length
-        ? `${attentionPlots.length} jadwal masih Planned dalam 3 hari.`
-        : "Tidak ada status Planned mendesak."
-    },
-    {
-      tone: openToday.length ? "info" : "safe",
-      title: "Pantau jadwal hari ini",
-      value: todayPlots.length
-        ? `${openToday.length} jadwal belum final dari ${todayPlots.length} jadwal.`
-        : "Tidak ada jadwal hari ini."
-    },
-    {
-      tone: alertSpotToday.length ? "danger" : "safe",
-      title: "Validasi note",
-      value: alertSpotToday.length
-        ? `${alertSpotToday.length} jadwal 0 spot, tidak tayang, atau dibatalkan perlu note yang jelas.`
-        : "Tidak ada spot merah hari ini."
-    },
-    {
-      tone: upcomingPlots.length ? "info" : "neutral",
-      title: "Cek minggu ini",
-      value: upcomingPlots.length
-        ? `${upcomingPlots.length} jadwal masuk timeline minggu ini.`
-        : "Belum ada jadwal minggu ini."
-    }
-  ];
-
-  reminderList.innerHTML = reminders.map((item) => `<article class="hero-reminder-item is-${item.tone}"><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.value)}</span></article>`).join("");
+  const spotLabel = runningSpot ? `${runningSpot} spot berjalan hari ini` : "Belum ada spot berjalan hari ini";
+  reminderList.innerHTML = `<article class="hero-reminder-item is-info"><strong>${escapeHTML(spotLabel)}</strong></article>`;
 }
 function batches() { return Object.values(state.plotings.reduce((acc, plot) => { (acc[plot.batchId] ||= []).push(plot); return acc; }, {})); }
 function getBatch(batchId) { return sortByDate(state.plotings.filter((plot) => plot.batchId === batchId)); }
@@ -572,12 +792,157 @@ function setSearchableBrandInput(inputSelector, datalistSelector, values, select
   }
   if (input) input.value = selectedValue || "";
 }
-function showToast(message) {
-  const toast = $("#toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+const GOOEY_TOAST_META = Object.freeze({
+  success: Object.freeze({ title: "Berhasil", icon: "check" }),
+  error: Object.freeze({ title: "Terjadi kendala", icon: "error" }),
+  warning: Object.freeze({ title: "Perlu diperhatikan", icon: "warning" }),
+  info: Object.freeze({ title: "Informasi", icon: "info" })
+});
+
+const GOOEY_TOAST_ICONS = Object.freeze({
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7"></path></svg>',
+  error: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"></path></svg>',
+  warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.5v6M12 17.2v.1"></path></svg>',
+  info: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 10.5V17M12 6.8v.1"></path></svg>'
+});
+
+function inferToastType(message) {
+  const normalized = String(message || "").toLocaleLowerCase("id-ID");
+  if (/(gagal|error|ditolak|tidak dapat|tidak ditemukan|belum berhasil|belum tersimpan|tidak merespons|tidak tersedia|belum siap)/.test(normalized)) return "error";
+  if (/(berhasil|tersimpan|disimpan|diperbarui|ditambahkan|dihapus|disalin|diunduh|diekspor|diexport|diimpor|diterapkan)/.test(normalized)) return "success";
+  if (/(pilih|lengkapi|wajib|harus|minimal|tidak boleh|sudah ada|belum ada|tidak ada|isi tanggal|isi nilai)/.test(normalized)) return "warning";
+  return "info";
+}
+
+function normalizeToastPayload(input, options = {}) {
+  const supplied = input && typeof input === "object" && !Array.isArray(input)
+    ? input
+    : { message: input, ...options };
+  const message = String(supplied.message ?? supplied.text ?? "").trim();
+  const inferredType = inferToastType(message);
+  const type = Object.prototype.hasOwnProperty.call(GOOEY_TOAST_META, supplied.type) ? supplied.type : inferredType;
+  const durationValue = Number(supplied.duration);
+  const defaultDuration = type === "error" ? 5600 : type === "warning" ? 4800 : 4200;
+  return {
+    type,
+    title: String(supplied.title || GOOEY_TOAST_META[type].title),
+    message,
+    duration: Number.isFinite(durationValue) && durationValue >= 1200 ? durationValue : defaultDuration
+  };
+}
+
+function dismissGooeyToast(toast, immediate = false) {
+  if (!toast || toast.dataset.dismissed === "true") return;
+  toast.dataset.dismissed = "true";
+  if (toast._gooeyToastTimer) window.clearTimeout(toast._gooeyToastTimer);
+  if (immediate) {
+    toast.remove();
+    return;
+  }
+  toast.classList.remove("is-visible");
+  toast.classList.add("is-leaving");
+  window.setTimeout(() => toast.remove(), 380);
+}
+
+function showGooeyToast(input, options = {}) {
+  const region = $("#toast");
+  if (!region) return null;
+
+  const payload = normalizeToastPayload(input, options);
+  if (!payload.message) return null;
+
+  const duplicate = Array.from(region.querySelectorAll(".gooey-toast"))
+    .find((item) => item.dataset.toastMessage === payload.message && item.dataset.dismissed !== "true");
+  if (duplicate) {
+    duplicate.classList.remove("is-pulsing");
+    void duplicate.offsetWidth;
+    duplicate.classList.add("is-pulsing");
+    return duplicate;
+  }
+
+  while (region.children.length >= 4) {
+    dismissGooeyToast(region.firstElementChild, true);
+  }
+
+  const meta = GOOEY_TOAST_META[payload.type];
+  const toast = document.createElement("article");
+  const toastId = `gooey-toast-${++toastSequence}`;
+  toast.id = toastId;
+  toast.className = `gooey-toast gooey-toast--${payload.type}`;
+  toast.dataset.toastMessage = payload.message;
+  toast.dataset.dismissed = "false";
+  toast.setAttribute("role", payload.type === "error" || payload.type === "warning" ? "alert" : "status");
+  toast.setAttribute("aria-labelledby", `${toastId}-title`);
+  toast.setAttribute("aria-describedby", `${toastId}-message`);
+  toast.style.setProperty("--toast-duration", `${payload.duration}ms`);
+
+  const effects = document.createElement("span");
+  effects.className = "gooey-toast-effects";
+  effects.setAttribute("aria-hidden", "true");
+  effects.innerHTML = '<i class="gooey-toast-blob gooey-toast-blob--main"></i><i class="gooey-toast-blob gooey-toast-blob--satellite"></i><i class="gooey-toast-blob gooey-toast-blob--trail"></i>';
+
+  const icon = document.createElement("span");
+  icon.className = "gooey-toast-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = GOOEY_TOAST_ICONS[meta.icon];
+
+  const copy = document.createElement("span");
+  copy.className = "gooey-toast-copy";
+  const title = document.createElement("strong");
+  title.id = `${toastId}-title`;
+  title.textContent = payload.title;
+  const message = document.createElement("span");
+  message.id = `${toastId}-message`;
+  message.textContent = payload.message;
+  copy.append(title, message);
+
+  const closeButton = document.createElement("button");
+  closeButton.className = "gooey-toast-close";
+  closeButton.type = "button";
+  closeButton.setAttribute("aria-label", "Tutup notifikasi");
+  closeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8 8 8M16 8l-8 8"></path></svg>';
+  closeButton.addEventListener("click", () => dismissGooeyToast(toast));
+
+  const progress = document.createElement("span");
+  progress.className = "gooey-toast-progress";
+  progress.setAttribute("aria-hidden", "true");
+
+  toast.append(effects, icon, copy, closeButton, progress);
+  region.appendChild(toast);
+
+  let remaining = payload.duration;
+  let startedAt = 0;
+  const startTimer = () => {
+    if (toast.dataset.dismissed === "true") return;
+    startedAt = performance.now();
+    toast._gooeyToastTimer = window.setTimeout(() => dismissGooeyToast(toast), remaining);
+    progress.style.animationPlayState = "running";
+  };
+  const pauseTimer = () => {
+    if (!toast._gooeyToastTimer || toast.dataset.dismissed === "true") return;
+    window.clearTimeout(toast._gooeyToastTimer);
+    toast._gooeyToastTimer = null;
+    remaining = Math.max(0, remaining - (performance.now() - startedAt));
+    progress.style.animationPlayState = "paused";
+  };
+
+  toast.addEventListener("mouseenter", pauseTimer);
+  toast.addEventListener("mouseleave", startTimer);
+  toast.addEventListener("focusin", pauseTimer);
+  toast.addEventListener("focusout", (event) => {
+    if (!toast.contains(event.relatedTarget)) startTimer();
+  });
+
+  requestAnimationFrame(() => {
+    toast.classList.add("is-visible");
+    startTimer();
+  });
+  return toast;
+}
+
+// Kompatibilitas untuk seluruh pemanggilan notifikasi yang sudah ada.
+function showToast(message, options = {}) {
+  return showGooeyToast(message, options);
 }
 
 
@@ -585,38 +950,22 @@ function setFirebaseStatus(stateName, text) {
   const badge = $("#firebaseStatus");
   const label = $("#firebaseStatusText");
   if (!badge || !label) return;
+  const message = String(text || "Status Firebase");
   badge.dataset.state = stateName;
-  label.textContent = text;
-}
-
-function getSelectedTeamAccount() {
-  return TEAM_ACCOUNTS[selectedTeamAccountId] || TEAM_ACCOUNTS.rakha;
+  badge.title = `Status sinkronisasi Firebase Realtime Database: ${message}`;
+  badge.setAttribute("aria-label", `Status sinkronisasi Firebase Realtime Database: ${message}`);
+  label.textContent = message;
 }
 
 function updateAuthForm() {
   const signInButton = $("#passwordSignInButton");
-  const selectedName = $("#authSelectedName");
+  const emailInput = $("#authEmailInput");
   const passwordInput = $("#authPasswordInput");
-  const account = getSelectedTeamAccount();
-
-  if (selectedName) selectedName.textContent = account.name;
-  $$(".auth-account-button").forEach((button) => {
-    const selected = button.dataset.teamAccount === account.id;
-    button.classList.toggle("is-selected", selected);
-    button.setAttribute("aria-pressed", String(selected));
-  });
-
   if (!signInButton) return;
-  const hasPassword = Boolean(passwordInput?.value?.trim());
-  signInButton.disabled = !firebaseBootstrapComplete || !hasPassword;
+  const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(emailInput?.value || "").trim());
+  const hasPassword = String(passwordInput?.value || "").length >= 6;
+  signInButton.disabled = !firebaseBootstrapComplete || !hasEmail || !hasPassword;
   signInButton.textContent = firebaseBootstrapComplete ? "Masuk" : "Menyiapkan Firebase...";
-}
-
-function selectTeamAccount(accountId, moveFocus = false) {
-  if (!TEAM_ACCOUNTS[accountId]) return;
-  selectedTeamAccountId = accountId;
-  updateAuthForm();
-  if (moveFocus) $("#authPasswordInput")?.focus();
 }
 
 function setAuthGate(open, message = "") {
@@ -631,20 +980,44 @@ function setAuthGate(open, message = "") {
   updateAuthForm();
 }
 
+function setProfileMenuOpen(open) {
+  const panel = $("#profileMenuPanel");
+  const button = $("#profileMenuButton");
+  profileMenuOpen = Boolean(open);
+  if (panel) panel.hidden = !profileMenuOpen;
+  if (button) button.setAttribute("aria-expanded", String(profileMenuOpen));
+}
+
 function updateUserChip(user) {
-  const button = $("#signOutButton");
+  const floatingChat = $("#floatingTeamChat");
+  if (floatingChat) floatingChat.hidden = !user;
+  if (!user && teamChatState.panelOpen) setFloatingTeamChatOpen(false);
+  const button = $("#profileMenuButton");
   const initial = $("#authUserInitial");
   const name = $("#authUserName");
   if (!button || !initial || !name) return;
   if (!user) {
     button.hidden = true;
+    initial.classList.remove("has-photo");
+    initial.textContent = "V";
+    setProfileMenuOpen(false);
     return;
   }
-  const account = TEAM_ACCOUNT_BY_EMAIL[String(user.email || "").toLowerCase()];
+  const account = currentTeamAccount();
   const label = account?.name || user.displayName || user.email || "Akun Tim";
-  initial.textContent = label.trim().charAt(0).toUpperCase() || "V";
+  if (account?.avatar) {
+    initial.classList.add("has-photo");
+    initial.innerHTML = `<img src="${escapeHTML(account.avatar)}" alt="${escapeHTML(label)}" decoding="async" loading="lazy"/>`;
+  } else {
+    initial.classList.remove("has-photo");
+    initial.textContent = label.trim().charAt(0).toUpperCase() || "V";
+  }
   name.textContent = label;
   button.hidden = false;
+  const role = $("#profileMenuRole");
+  if (role) role.textContent = account?.role === "admin" ? "Administrator" : "PIC";
+  const manageButton = $("#openAccountManagementButton");
+  if (manageButton) manageButton.hidden = account?.role !== "admin";
 }
 
 function stableStringify(value) {
@@ -664,6 +1037,871 @@ function cleanFirebaseValue(value) {
     }, {});
   }
   return value;
+}
+
+const AUDIT_ACTION_META = Object.freeze({
+  BATCH_CREATED: Object.freeze({ label: "Batch dibuat", tone: "create" }),
+  BATCH_UPDATED: Object.freeze({ label: "Batch diperbarui", tone: "update" }),
+  SCHEDULE_UPDATED: Object.freeze({ label: "Jadwal diperbarui", tone: "update" }),
+  SCHEDULE_SLID: Object.freeze({ label: "Spot digeser", tone: "warning" }),
+  SCHEDULE_DELETED: Object.freeze({ label: "Jadwal dihapus", tone: "delete" }),
+  MASTER_CREATED: Object.freeze({ label: "Master ditambahkan", tone: "create" }),
+  MASTER_DELETED: Object.freeze({ label: "Master dihapus", tone: "delete" }),
+  LEGACY_IMPORTED: Object.freeze({ label: "Data lama diimpor", tone: "import" }),
+  ACCOUNT_CREATED: Object.freeze({ label: "Akun dibuat", tone: "create" }),
+  PROFILE_UPDATED: Object.freeze({ label: "Profil diperbarui", tone: "update" }),
+  ACCOUNT_DEACTIVATED: Object.freeze({ label: "Akun dinonaktifkan", tone: "warning" }),
+  ACCOUNT_REACTIVATED: Object.freeze({ label: "Akun diaktifkan", tone: "create" }),
+  ACCOUNT_DELETED: Object.freeze({ label: "Akun dihapus", tone: "delete" })
+});
+
+// Chat dan reminder antar-PIC bersifat komunikasi internal, sehingga tidak
+// disimpan maupun ditampilkan sebagai aktivitas operasional pada Audit Log.
+const NON_AUDIT_ACTIONS = new Set([
+  "CHAT_SENT",
+  "REMINDER_SENT",
+  "REMINDER_READ",
+  "REMINDER_SNOOZED",
+  "REMINDER_COMPLETED"
+]);
+
+function isExcludedFromAuditLog(entry = {}) {
+  return NON_AUDIT_ACTIONS.has(String(entry.action || "")) ||
+    ["message", "reminder"].includes(String(entry.entityType || "").toLowerCase());
+}
+
+const AUDIT_FIELD_LABELS = Object.freeze({
+  advertiser: "PT Advertiser", brand: "Brand", sales: "Sales", pic: "PIC", unit: "Unit",
+  program: "Program", pod: "POD", version: "Versi VA", format: "Format VA", duration: "Durasi",
+  gfx: "Materi GFX", segmentation: "Segmentasi", batchNote: "Note Batch", planAiring: "Tanggal",
+  spot: "Spot", airingStatus: "Status", scheduleNote: "Note Jadwal", scheduleCount: "Jumlah jadwal", scheduleDetail: "Detail jadwal"
+});
+
+function auditValue(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+function auditChanges(before = {}, after = {}, fields = []) {
+  return fields.reduce((changes, field) => {
+    const previous = auditValue(before?.[field]);
+    const next = auditValue(after?.[field]);
+    if (previous !== next) changes.push({ field, label: AUDIT_FIELD_LABELS[field] || field, before: previous, after: next });
+    return changes;
+  }, []);
+}
+
+function batchAuditSnapshot(batch = []) {
+  const first = batch[0] || {};
+  return {
+    advertiser: first.advertiser, brand: first.brand, sales: first.sales, pic: first.pic, unit: first.unit,
+    program: first.program, pod: first.pod, version: first.version, format: first.format, duration: first.duration,
+    gfx: first.gfx, segmentation: first.segmentation, batchNote: first.batchNote,
+    scheduleCount: batch.length,
+    planAiring: batch.map((plot) => plot.planAiring).filter(Boolean).sort().join(", "),
+    spot: sum(batch.map((plot) => plot.spot)),
+    airingStatus: unique(batch.map((plot) => plot.airingStatus)).join(", "),
+    scheduleDetail: batch.map((plot) => [plot.planAiring, `${Number(plot.spot || 0)} spot`, plot.airingStatus, plot.scheduleNote].filter(Boolean).join(" · ")).join(" | ")
+  };
+}
+
+function auditTargetFromPlot(plot = {}) {
+  return [plot.brand, plot.program].filter(Boolean).join(" · ") || plot.batchId || plot.id || "Data ploting";
+}
+
+async function recordAuditLog(entry = {}) {
+  if (!currentFirebaseUser || !entry.action || isExcludedFromAuditLog(entry)) return;
+  const account = currentTeamAccount();
+  const createdAt = nowIso();
+  const id = `AUD-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const record = cleanFirebaseValue({
+    id,
+    createdAt,
+    actorId: account?.id || currentFirebaseUser.uid || "unknown",
+    actorName: account?.name || currentFirebaseUser.displayName || currentFirebaseUser.email || "Akun Tim",
+    actorEmail: currentFirebaseUser.email || "",
+    action: entry.action,
+    entityType: entry.entityType || "system",
+    entityId: entry.entityId || "",
+    target: entry.target || "Data aplikasi",
+    summary: entry.summary || AUDIT_ACTION_META[entry.action]?.label || entry.action,
+    changes: Array.isArray(entry.changes) ? entry.changes : [],
+    metadata: entry.metadata || {}
+  });
+
+  try {
+    await update(realtimeAuditLogsRef, { [id]: record });
+  } catch (error) {
+    console.error("Audit Log gagal dicatat.", error);
+    showToast({ message: "Perubahan tersimpan, tetapi Audit Log gagal dicatat.", type: "warning" });
+  }
+}
+
+function formatAuditDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+function isAuditToday(value) {
+  return String(value || "").slice(0, 10) === getLocalIsoDate();
+}
+
+function renderAuditLog() {
+  const query = filters.audit.query.trim().toLocaleLowerCase("id-ID");
+  // Sembunyikan juga log chat/reminder lama yang mungkin sudah tersimpan
+  // sebelum kebijakan ini diterapkan, tanpa menghapus data Firebase lainnya.
+  const operationalAuditLogs = auditLogs.filter((item) => !isExcludedFromAuditLog(item));
+  const actors = sortText(unique(operationalAuditLogs.map((item) => item.actorName)));
+  const actions = unique(operationalAuditLogs.map((item) => item.action)).sort((a, b) =>
+    String(AUDIT_ACTION_META[a]?.label || a).localeCompare(String(AUDIT_ACTION_META[b]?.label || b), "id")
+  );
+  setSelectOptions("#auditActorFilter", actors, "Semua akun", filters.audit.actor);
+  const actionSelect = $("#auditActionFilter");
+  if (actionSelect) {
+    actionSelect.innerHTML = `<option value="">Semua aktivitas</option>${actions.map((action) => `<option value="${escapeHTML(action)}" ${action === filters.audit.action ? "selected" : ""}>${escapeHTML(AUDIT_ACTION_META[action]?.label || action)}</option>`).join("")}`;
+  }
+
+  const filtered = operationalAuditLogs.filter((item) => {
+    const haystack = [item.actorName, item.action, AUDIT_ACTION_META[item.action]?.label, item.target, item.summary, item.entityId]
+      .join(" ").toLocaleLowerCase("id-ID");
+    return (!query || haystack.includes(query)) &&
+      (!filters.audit.actor || item.actorName === filters.audit.actor) &&
+      (!filters.audit.action || item.action === filters.audit.action);
+  });
+
+  const currentActor = currentTeamDisplayName();
+  const kpis = [
+    ["Total aktivitas", operationalAuditLogs.length, "Seluruh riwayat operasional"],
+    ["Aktivitas hari ini", operationalAuditLogs.filter((item) => isAuditToday(item.createdAt)).length, formatDate(getLocalIsoDate())],
+    ["Aktivitas akun ini", operationalAuditLogs.filter((item) => item.actorName === currentActor).length, currentActor],
+    ["Hasil filter", filtered.length, filters.audit.query || filters.audit.actor || filters.audit.action ? "Sesuai filter aktif" : "Semua aktivitas"]
+  ];
+  const kpiGrid = $("#auditLogKpis");
+  if (kpiGrid) kpiGrid.innerHTML = kpis.map(([label, value, note]) => `<article class="mini-kpi"><p>${escapeHTML(label)}</p><strong>${value}</strong><small>${escapeHTML(note)}</small></article>`).join("");
+
+  const count = $("#auditResultCount");
+  if (count) count.textContent = filtered.length;
+  const body = $("#auditLogBody");
+  if (!body) return;
+  body.innerHTML = filtered.length ? filtered.slice(0, 300).map((item) => {
+    const meta = AUDIT_ACTION_META[item.action] || { label: item.action || "Aktivitas", tone: "update" };
+    const changes = Array.isArray(item.changes) ? item.changes : [];
+    const changeMarkup = (change) => `<span><b>${escapeHTML(change.label || change.field)}</b><del title="${escapeHTML(change.before)}">${escapeHTML(change.before)}</del><i aria-hidden="true">→</i><ins title="${escapeHTML(change.after)}">${escapeHTML(change.after)}</ins></span>`;
+    const visibleChanges = changes.slice(0, 4);
+    const hiddenChanges = changes.slice(4);
+    const changesMarkup = changes.length
+      ? `<div class="audit-change-list">${visibleChanges.map(changeMarkup).join("")}${hiddenChanges.length ? `<details class="audit-change-details"><summary>+${hiddenChanges.length} rincian perubahan lainnya</summary><div>${hiddenChanges.map(changeMarkup).join("")}</div></details>` : ""}</div>`
+      : `<span class="cell-subtitle">Tidak ada rincian field.</span>`;
+    return `<tr>
+      <td><span class="cell-title">${escapeHTML(formatAuditDateTime(item.createdAt))}</span><span class="cell-subtitle">${escapeHTML(String(item.id || "").slice(-10))}</span></td>
+      <td><span class="audit-actor"><b>${escapeHTML(item.actorName || "Akun Tim")}</b><small>${escapeHTML(item.actorEmail || "")}</small></span></td>
+      <td><span class="audit-action-badge audit-action--${escapeHTML(meta.tone)}">${escapeHTML(meta.label)}</span></td>
+      <td><span class="cell-title">${escapeHTML(item.target || "Data aplikasi")}</span><span class="cell-subtitle">${escapeHTML(item.entityType || "system")} · ${escapeHTML(item.entityId || "-")}</span></td>
+      <td><span class="audit-summary">${escapeHTML(item.summary || meta.label)}</span></td>
+      <td>${changesMarkup}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty-row">Belum ada aktivitas yang sesuai dengan filter.</td></tr>`;
+}
+
+
+function formatTeamDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+function teamConversationMessages(recipientId = teamChatState.selectedRecipientId) {
+  const currentId = currentTeamAccountId();
+  if (!currentId || !recipientId) return [];
+  return teamMessages.filter((message) => (
+    (message.senderId === currentId && message.recipientId === recipientId) ||
+    (message.senderId === recipientId && message.recipientId === currentId)
+  ));
+}
+
+function teamConversationReminders(recipientId = teamChatState.selectedRecipientId) {
+  const currentId = currentTeamAccountId();
+  if (!currentId || !recipientId) return [];
+  return teamReminders.filter((reminder) => (
+    (reminder.senderId === currentId && reminder.recipientId === recipientId) ||
+    (reminder.senderId === recipientId && reminder.recipientId === currentId)
+  ));
+}
+
+function unreadTeamMessageCount(senderId = "") {
+  const currentId = currentTeamAccountId();
+  return teamMessages.filter((message) => (
+    message.recipientId === currentId &&
+    !message.readAt &&
+    (!senderId || message.senderId === senderId)
+  )).length;
+}
+
+function unreadTeamReminderCount(senderId = "") {
+  const currentId = currentTeamAccountId();
+  return teamReminders.filter((reminder) => (
+    reminder.recipientId === currentId &&
+    reminder.status === "unread" &&
+    (!senderId || reminder.senderId === senderId)
+  )).length;
+}
+
+function updateTeamChatBadges() {
+  const total = unreadTeamMessageCount() + unreadTeamReminderCount();
+  [["#teamChatNavBadge", total], ["#mobileTeamChatBadge", total], ["#teamChatTotalBadge", total], ["#floatingTeamChatBadge", total]].forEach(([selector, count]) => {
+    const badge = $(selector);
+    if (!badge) return;
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.hidden = count <= 0;
+  });
+  const status = $("#teamChatHeaderStatus");
+  if (status) status.textContent = total ? `${total} belum dibaca` : "Firebase realtime";
+}
+
+function latestTeamActivityWith(accountId) {
+  const items = [
+    ...teamConversationMessages(accountId).map((item) => ({ ...item, itemType: "message" })),
+    ...teamConversationReminders(accountId).map((item) => ({ ...item, itemType: "reminder" }))
+  ].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return items[0] || null;
+}
+
+function teamMessageStatusLabel(message) {
+  if (message.recipientId !== currentTeamAccountId()) return message.readAt ? "Dibaca" : "Terkirim";
+  return "";
+}
+
+function teamReminderStatusLabel(reminder) {
+  if (reminder.status === "completed") return "Selesai";
+  if (reminder.status === "read") return "Dibaca";
+  const due = new Date(reminder.remindAt || reminder.createdAt).getTime();
+  return Number.isFinite(due) && due > Date.now() ? `Dijadwalkan ${formatTeamDateTime(reminder.remindAt)}` : "Belum dibaca";
+}
+
+function renderTeamChatContacts() {
+  const list = $("#teamChatContactList");
+  if (!list) return;
+  const selected = ensureSelectedTeamRecipient();
+  const recipients = availableTeamRecipients();
+  list.innerHTML = recipients.length ? recipients.map((account) => {
+    const unread = unreadTeamMessageCount(account.id) + unreadTeamReminderCount(account.id);
+    const latest = latestTeamActivityWith(account.id);
+    const preview = latest
+      ? (latest.itemType === "reminder" ? `Reminder: ${latest.message || ""}` : latest.text || "")
+      : "Belum ada percakapan";
+    return `<button class="team-chat-contact ${selected?.id === account.id ? "is-selected" : ""}" data-team-chat-contact="${escapeHTML(account.id)}" type="button">
+      ${accountAvatarMarkup(account, "team-chat-avatar")}
+      <span class="team-chat-contact-copy"><strong>${escapeHTML(account.name)}</strong><small>${escapeHTML(preview)}</small></span>
+      ${unread ? `<b class="team-chat-contact-unread">${unread > 99 ? "99+" : unread}</b>` : ""}
+    </button>`;
+  }).join("") : `<div class="team-chat-empty">Tidak ada akun PIC lain.</div>`;
+}
+
+function renderTeamChatConversation() {
+  const recipient = ensureSelectedTeamRecipient();
+  const head = $("#teamChatConversationHead");
+  const list = $("#teamChatMessageList");
+  const chatForm = $("#teamChatForm");
+  const conversation = $(".floating-team-chat-conversation");
+  if (!head || !list || !chatForm) return;
+
+  if (!recipient) {
+    conversation?.classList.remove("is-reminder-composer-open");
+    head.innerHTML = `<div><p class="section-label">PERCAKAPAN</p><h3>Belum ada akun tujuan</h3></div>`;
+    list.innerHTML = `<div class="team-chat-empty">Tambahkan akun PIC untuk mulai berkomunikasi.</div>`;
+    chatForm.hidden = true;
+    return;
+  }
+
+  chatForm.hidden = false;
+  head.innerHTML = `<div class="team-chat-active-person">${accountAvatarMarkup(recipient, "team-chat-avatar team-chat-avatar--large")}<div><p class="section-label">PERCAKAPAN DENGAN</p><h3>${escapeHTML(recipient.name)}</h3><span>Pesan dan reminder tersinkron secara realtime.</span></div></div>`;
+
+  const currentId = currentTeamAccountId();
+  const timeline = [
+    ...teamConversationMessages(recipient.id).map((item) => ({ ...item, itemType: "message", sortAt: item.createdAt })),
+    ...teamConversationReminders(recipient.id).map((item) => ({ ...item, itemType: "reminder", sortAt: item.createdAt }))
+  ].sort((a, b) => String(a.sortAt || "").localeCompare(String(b.sortAt || "")));
+
+  list.innerHTML = timeline.length ? timeline.map((item) => {
+    const outgoing = item.senderId === currentId;
+    const sender = teamAccountById(item.senderId);
+    if (item.itemType === "reminder") {
+      const priority = ["normal", "important", "urgent"].includes(item.priority) ? item.priority : "normal";
+      const canManage = item.recipientId === currentId && item.status !== "completed";
+      return `<article class="team-chat-reminder-message ${outgoing ? "is-outgoing" : "is-incoming"} team-chat-reminder--${priority}">
+        <div class="team-chat-reminder-top"><span>⏰ Reminder ${outgoing ? `untuk ${escapeHTML(recipient.name)}` : `dari ${escapeHTML(sender?.name || "PIC")}`}</span><b>${escapeHTML(teamReminderStatusLabel(item))}</b></div>
+        <p>${escapeHTML(item.message || "")}</p>
+        <small>Dibuat ${escapeHTML(formatTeamDateTime(item.createdAt))}</small>
+        ${canManage ? `<div class="team-chat-reminder-actions"><button data-team-reminder-id="${escapeHTML(item.id)}" data-team-reminder-action="read" type="button">Tandai dibaca</button><button data-team-reminder-id="${escapeHTML(item.id)}" data-team-reminder-action="complete" type="button">Selesai</button></div>` : ""}
+      </article>`;
+    }
+    return `<article class="team-chat-message ${outgoing ? "is-outgoing" : "is-incoming"}">
+      <p>${escapeHTML(item.text || "")}</p>
+      <small>${escapeHTML(formatTeamDateTime(item.createdAt))}${teamMessageStatusLabel(item) ? ` · ${escapeHTML(teamMessageStatusLabel(item))}` : ""}</small>
+    </article>`;
+  }).join("") : `<div class="team-chat-empty team-chat-empty--conversation"><strong>Belum ada pesan dengan ${escapeHTML(recipient.name)}.</strong><span>Kirim chat atau buat reminder pertama.</span></div>`;
+
+  const composer = $("#teamReminderComposer");
+  if (composer) composer.hidden = !teamChatState.reminderComposerOpen;
+  conversation?.classList.toggle("is-reminder-composer-open", teamChatState.reminderComposerOpen);
+  chatForm.hidden = teamChatState.reminderComposerOpen;
+  const composerTitle = $("#teamReminderComposerTitle");
+  if (composerTitle) composerTitle.textContent = `Kirim reminder ke ${recipient.name}`;
+  window.requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+}
+
+function renderTeamChat() {
+  renderTeamChatContacts();
+  renderTeamChatConversation();
+  updateTeamChatBadges();
+  if (teamChatState.panelOpen) markConversationMessagesRead(teamChatState.selectedRecipientId);
+}
+
+
+function setFloatingTeamChatOpen(open, recipientId = "") {
+  const panel = $("#teamChatPanel");
+  const launcher = $("#teamChatLauncher");
+  if (!panel || !launcher) return;
+
+  if (recipientId && teamAccountById(recipientId)) {
+    teamChatState.selectedRecipientId = recipientId;
+  }
+  teamChatState.panelOpen = Boolean(open);
+  launcher.setAttribute("aria-expanded", String(teamChatState.panelOpen));
+  launcher.setAttribute("aria-label", teamChatState.panelOpen ? "Tutup chat tim" : "Buka chat tim");
+
+  if (teamChatState.panelOpen) {
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+    window.requestAnimationFrame(() => panel.classList.add("is-open"));
+    renderTeamChat();
+  } else {
+    panel.classList.remove("is-open");
+    panel.setAttribute("aria-hidden", "true");
+    teamChatState.reminderComposerOpen = false;
+    window.setTimeout(() => {
+      if (!teamChatState.panelOpen) panel.hidden = true;
+    }, 180);
+  }
+}
+
+function toggleFloatingTeamChat() {
+  setFloatingTeamChatOpen(!teamChatState.panelOpen);
+}
+
+async function sendTeamChatMessage(event) {
+  event?.preventDefault();
+  const sender = currentTeamAccount();
+  const recipient = ensureSelectedTeamRecipient();
+  const input = $("#teamChatMessageInput");
+  const text = normalizeWhitespace(input?.value).slice(0, 1000);
+  if (!sender || !recipient || !text) {
+    showToast({ message: "Pilih akun tujuan dan tulis pesan terlebih dahulu.", type: "warning" });
+    return;
+  }
+  const createdAt = nowIso();
+  const id = `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const record = cleanFirebaseValue({ id, senderId: sender.id, senderName: sender.name, recipientId: recipient.id, recipientName: recipient.name, text, createdAt, readAt: "" });
+  try {
+    await update(realtimeMessagesRef, { [id]: record });
+    if (input) input.value = "";
+  } catch (error) {
+    console.error("Pesan tidak dapat dikirim.", error);
+    showToast({ message: "Pesan belum terkirim. Periksa Firebase Rules dan koneksi internet.", type: "error" });
+  }
+}
+
+async function sendTeamReminder(event) {
+  event?.preventDefault();
+  const sender = currentTeamAccount();
+  const recipient = ensureSelectedTeamRecipient();
+  const messageInput = $("#teamReminderMessageInput");
+  const message = normalizeWhitespace(messageInput?.value).slice(0, 500);
+  const priority = $("#teamReminderPriorityInput")?.value || "normal";
+  if (!sender || !recipient || !message) {
+    showToast({ message: "Isi pesan reminder terlebih dahulu.", type: "warning" });
+    return;
+  }
+  const createdAt = nowIso();
+  const remindAt = createdAt;
+  const id = `REM-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const record = cleanFirebaseValue({ id, senderId: sender.id, senderName: sender.name, recipientId: recipient.id, recipientName: recipient.name, message, priority, status: "unread", createdAt, remindAt, readAt: "", completedAt: "", snoozedAt: "" });
+  try {
+    await update(realtimeRemindersRef, { [id]: record });
+    if (messageInput) messageInput.value = "";
+    if ($("#teamReminderPriorityInput")) $("#teamReminderPriorityInput").value = "normal";
+    teamChatState.reminderComposerOpen = false;
+    renderTeamChatConversation();
+    showToast({ message: `Reminder untuk ${recipient.name} berhasil dikirim.`, type: "success" });
+  } catch (error) {
+    console.error("Reminder tidak dapat dikirim.", error);
+    showToast({ message: "Reminder belum terkirim. Periksa Firebase Rules dan koneksi internet.", type: "error" });
+  }
+}
+
+async function markConversationMessagesRead(senderId) {
+  const currentId = currentTeamAccountId();
+  if (!currentId || !senderId || teamChatReadSyncInProgress) return;
+  const unread = teamMessages.filter((message) => message.senderId === senderId && message.recipientId === currentId && !message.readAt);
+  if (!unread.length) return;
+  teamChatReadSyncInProgress = true;
+  const readAt = nowIso();
+  const updates = {};
+  unread.forEach((message) => { updates[`messages/${message.id}/readAt`] = readAt; message.readAt = readAt; });
+  updateTeamChatBadges();
+  try {
+    await update(realtimeRootRef, updates);
+  } catch (error) {
+    console.error("Status baca chat gagal diperbarui.", error);
+  } finally {
+    teamChatReadSyncInProgress = false;
+  }
+}
+
+function dueIncomingTeamReminders() {
+  const currentId = currentTeamAccountId();
+  const now = Date.now();
+  return teamReminders.filter((reminder) => {
+    const due = new Date(reminder.remindAt || reminder.createdAt).getTime();
+    return reminder.recipientId === currentId && reminder.status === "unread" && (!Number.isFinite(due) || due <= now);
+  }).sort((a, b) => String(a.remindAt || a.createdAt || "").localeCompare(String(b.remindAt || b.createdAt || "")));
+}
+
+function closeIncomingTeamReminderModal() {
+  const backdrop = $("#teamReminderModalBackdrop");
+  if (!backdrop) return;
+  backdrop.hidden = true;
+  backdrop.classList.remove("is-open");
+  backdrop.setAttribute("aria-hidden", "true");
+  activeIncomingReminderId = "";
+  document.body.classList.remove("team-reminder-modal-open");
+}
+
+function renderIncomingTeamReminderModal() {
+  const backdrop = $("#teamReminderModalBackdrop");
+  if (!backdrop || !currentFirebaseUser) {
+    closeIncomingTeamReminderModal();
+    return;
+  }
+  const reminder = dueIncomingTeamReminders()[0];
+  if (!reminder) {
+    closeIncomingTeamReminderModal();
+    return;
+  }
+  const sender = teamAccountById(reminder.senderId);
+  activeIncomingReminderId = reminder.id;
+  const title = $("#teamReminderModalTitle");
+  const message = $("#teamReminderModalMessage");
+  const meta = $("#teamReminderModalMeta");
+  if (title) title.textContent = `Reminder dari ${sender?.name || reminder.senderName || "PIC"}`;
+  if (message) message.textContent = reminder.message || "";
+  if (meta) meta.innerHTML = `<span class="team-reminder-priority team-reminder-priority--${escapeHTML(reminder.priority || "normal")}">${escapeHTML(reminder.priority === "urgent" ? "Mendesak" : reminder.priority === "important" ? "Penting" : "Biasa")}</span><span>${escapeHTML(formatTeamDateTime(reminder.remindAt || reminder.createdAt))}</span>`;
+  backdrop.hidden = false;
+  backdrop.classList.add("is-open");
+  backdrop.setAttribute("aria-hidden", "false");
+  document.body.classList.add("team-reminder-modal-open");
+}
+
+async function updateTeamReminderStatus(reminderId, action) {
+  const reminder = teamReminders.find((item) => item.id === reminderId);
+  const currentId = currentTeamAccountId();
+  if (!reminder || reminder.recipientId !== currentId) return;
+  const previousReminder = clone(reminder);
+  const now = nowIso();
+  const patch = {};
+  if (action === "complete") {
+    patch.status = "completed"; patch.readAt = reminder.readAt || now; patch.completedAt = now;
+  } else if (action === "snooze") {
+    patch.status = "unread"; patch.remindAt = new Date(Date.now() + 10 * 60_000).toISOString(); patch.snoozedAt = now;
+  } else {
+    patch.status = "read"; patch.readAt = now;
+  }
+  Object.assign(reminder, patch);
+  closeIncomingTeamReminderModal();
+  updateTeamChatBadges();
+  if (teamChatState.panelOpen) renderTeamChat();
+  const updates = {};
+  Object.entries(patch).forEach(([key, value]) => { updates[`reminders/${reminderId}/${key}`] = value; });
+  try {
+    await update(realtimeRootRef, updates);
+  } catch (error) {
+    Object.assign(reminder, previousReminder);
+    updateTeamChatBadges();
+    if (teamChatState.panelOpen) renderTeamChat();
+    renderIncomingTeamReminderModal();
+    console.error("Status reminder gagal diperbarui.", error);
+    showToast({ message: "Status reminder belum tersimpan.", type: "error" });
+  }
+}
+
+async function handleIncomingReminderModalAction(action) {
+  const reminder = teamReminders.find((item) => item.id === activeIncomingReminderId);
+  if (!reminder) return;
+  if (action === "open") {
+    teamChatState.selectedRecipientId = reminder.senderId;
+    await updateTeamReminderStatus(reminder.id, "read");
+    setFloatingTeamChatOpen(true, reminder.senderId);
+    return;
+  }
+  await updateTeamReminderStatus(reminder.id, action);
+}
+
+
+function currentAccountIsAdmin() {
+  return currentTeamAccount()?.role === "admin";
+}
+
+function teamAccountFirebaseKey(account = currentTeamAccount()) {
+  if (!account) return "";
+  if (account.uid) return account.uid;
+  const entry = Object.entries(teamAccounts || {}).find(([, raw]) => normalizeTeamAccountRecord(raw).id === account.id);
+  return entry?.[0] || "";
+}
+
+function buildLegacyProfile(user, legacy) {
+  return cleanFirebaseValue({
+    uid: user.uid,
+    id: legacy.id,
+    name: legacy.name,
+    email: String(user.email || legacy.email).toLocaleLowerCase("id-ID"),
+    avatar: legacy.avatar || "",
+    role: "admin",
+    active: true,
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  });
+}
+
+async function ensureCurrentTeamProfile() {
+  if (!currentFirebaseUser || !teamAccountsLoaded) return;
+  const account = currentTeamAccount();
+  if (account && !account.active) {
+    if (accountDeletionInProgress) return;
+    await signOut(firebaseAuth);
+    setAuthGate(true, "Akun ini sudah dinonaktifkan. Hubungi administrator.");
+    return;
+  }
+  if (account?.uid === currentFirebaseUser.uid) return;
+
+  const email = String(currentFirebaseUser.email || "").toLocaleLowerCase("id-ID");
+  const legacy = LEGACY_TEAM_ACCOUNT_BY_EMAIL[email];
+  const source = account || legacy;
+  if (!source) {
+    await signOut(firebaseAuth);
+    setAuthGate(true, "Profil akun belum terdaftar di workspace. Hubungi administrator.");
+    return;
+  }
+  try {
+    const oldKey = account ? teamAccountFirebaseKey(account) : "";
+    const record = cleanFirebaseValue({
+      ...(account || buildLegacyProfile(currentFirebaseUser, legacy)),
+      uid: currentFirebaseUser.uid,
+      id: source.id,
+      name: source.name,
+      email,
+      avatar: source.avatar || "",
+      role: source.role || "pic",
+      active: true,
+      createdAt: source.createdAt || nowIso(),
+      updatedAt: nowIso()
+    });
+    const updates = { [currentFirebaseUser.uid]: record };
+    if (oldKey && oldKey !== currentFirebaseUser.uid) updates[oldKey] = null;
+    await update(realtimeTeamAccountsRef, updates);
+  } catch (error) {
+    console.error("Profil akun tidak dapat disiapkan.", error);
+    showToast({ message: "Profil akun belum dapat disiapkan. Periksa Firebase Rules untuk teamAccounts.", type: "warning" });
+  }
+}
+
+function slugifyAccountId(name) {
+  const base = normalizeWhitespace(name).toLocaleLowerCase("id-ID")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pic";
+  const used = new Set(allTeamAccounts({ includeInactive: true }).map((account) => account.id));
+  let candidate = base;
+  let index = 2;
+  while (used.has(candidate)) candidate = `${base}-${index++}`;
+  return candidate;
+}
+
+function profileImageToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith("image/")) {
+      reject(new Error("Pilih file gambar yang valid."));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error("Ukuran foto maksimal 5 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Foto tidak dapat dibaca."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Format foto tidak didukung."));
+      image.onload = () => {
+        const size = 256;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        const scale = Math.max(size / image.width, size / image.height);
+        const width = image.width * scale;
+        const height = image.height * scale;
+        context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderProfileModal() {
+  const account = currentTeamAccount();
+  if (!account || !currentFirebaseUser) return;
+  const preview = $("#profileAvatarPreview");
+  if (preview) preview.innerHTML = accountAvatarMarkup({ ...account, avatar: profileAvatarDraft === "__REMOVE__" ? "" : (profileAvatarDraft || account.avatar) }, "profile-avatar-preview-image");
+  if ($("#profileNameInput")) $("#profileNameInput").value = account.name || "";
+  if ($("#profileEmailInput")) $("#profileEmailInput").value = account.email || currentFirebaseUser.email || "";
+  if ($("#profileRoleLabel")) $("#profileRoleLabel").textContent = account.role === "admin" ? "Administrator" : "PIC";
+  const adminTab = $("#profileAccountsTabButton");
+  if (adminTab) adminTab.hidden = !currentAccountIsAdmin();
+  if (!currentAccountIsAdmin() && profileActiveTab === "accounts") profileActiveTab = "profile";
+  $$("[data-profile-tab]").forEach((button) => {
+    const active = button.dataset.profileTab === profileActiveTab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $$("[data-profile-panel]").forEach((panel) => { panel.hidden = panel.dataset.profilePanel !== profileActiveTab; });
+  renderAccountManagementList();
+}
+
+function openProfileModal(tab = "profile") {
+  profileActiveTab = tab === "accounts" && currentAccountIsAdmin() ? "accounts" : "profile";
+  profileAvatarDraft = "";
+  const backdrop = $("#profileModalBackdrop");
+  if (!backdrop) return;
+  backdrop.classList.add("open");
+  backdrop.setAttribute("aria-hidden", "false");
+  setProfileMenuOpen(false);
+  renderProfileModal();
+}
+
+function closeProfileModal() {
+  const backdrop = $("#profileModalBackdrop");
+  if (!backdrop) return;
+  backdrop.classList.remove("open");
+  backdrop.setAttribute("aria-hidden", "true");
+  profileAvatarDraft = "";
+  $("#profileForm")?.reset();
+  $("#deleteOwnAccountForm")?.reset();
+}
+
+async function reauthenticateCurrentUser(password) {
+  const user = currentFirebaseUser;
+  if (!user?.email || !password) throw new Error("Masukkan password saat ini.");
+  const credential = EmailAuthProvider.credential(user.email, password);
+  await reauthenticateWithCredential(user, credential);
+}
+
+async function saveCurrentProfile(event) {
+  event?.preventDefault();
+  const account = currentTeamAccount();
+  const user = currentFirebaseUser;
+  if (!account || !user) return;
+  const name = normalizeWhitespace($("#profileNameInput")?.value).slice(0, 80);
+  const email = normalizeWhitespace($("#profileEmailInput")?.value).toLocaleLowerCase("id-ID");
+  const currentPassword = $("#profileCurrentPasswordInput")?.value || "";
+  const newPassword = $("#profileNewPasswordInput")?.value || "";
+  const confirmPassword = $("#profileConfirmPasswordInput")?.value || "";
+  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast({ message: "Lengkapi nama dan email yang valid.", type: "warning" });
+    return;
+  }
+  if (newPassword && (newPassword.length < 6 || newPassword !== confirmPassword)) {
+    showToast({ message: "Password baru minimal 6 karakter dan konfirmasinya harus sama.", type: "warning" });
+    return;
+  }
+  const sensitiveChange = email !== String(user.email || "").toLocaleLowerCase("id-ID") || Boolean(newPassword);
+  try {
+    if (sensitiveChange) await reauthenticateCurrentUser(currentPassword);
+    if (email !== String(user.email || "").toLocaleLowerCase("id-ID")) await updateEmail(user, email);
+    if (newPassword) await updatePassword(user, newPassword);
+    await updateProfile(user, { displayName: name });
+    const key = teamAccountFirebaseKey(account) || user.uid;
+    const previousName = account.name;
+    const avatar = profileAvatarDraft === "__REMOVE__" ? "" : (profileAvatarDraft || account.avatar || "");
+    await update(realtimeTeamAccountsRef, {
+      [key]: cleanFirebaseValue({ ...account, uid: user.uid, id: account.id, name, email, avatar, active: true, picAliases: unique([...(account.picAliases || []), ...(previousName !== name ? [previousName] : [])]), updatedAt: nowIso() })
+    });
+    state.masters.pics = sortText(unique([...(state.masters.pics || []), name]));
+    saveState();
+    recordAuditLog({ action: "PROFILE_UPDATED", entityType: "account", entityId: account.id, target: name, summary: `Profil ${name} diperbarui.`, changes: [{ field: "Nama", before: previousName, after: name }] });
+    profileAvatarDraft = "";
+    if ($("#profileCurrentPasswordInput")) $("#profileCurrentPasswordInput").value = "";
+    if ($("#profileNewPasswordInput")) $("#profileNewPasswordInput").value = "";
+    if ($("#profileConfirmPasswordInput")) $("#profileConfirmPasswordInput").value = "";
+    showToast({ message: "Profil berhasil diperbarui.", type: "success" });
+  } catch (error) {
+    console.error("Profil tidak dapat diperbarui.", error);
+    const message = error?.code === "auth/requires-recent-login" || error?.code === "auth/invalid-credential"
+      ? "Password saat ini tidak sesuai."
+      : error?.code === "auth/email-already-in-use"
+        ? "Email tersebut sudah digunakan akun lain."
+        : "Profil belum dapat diperbarui. Periksa koneksi dan Firebase Rules.";
+    showToast({ message, type: "error" });
+  }
+}
+
+async function createTeamAccount(event) {
+  event?.preventDefault();
+  if (!currentAccountIsAdmin()) {
+    showToast({ message: "Hanya administrator yang dapat menambah akun.", type: "error" });
+    return;
+  }
+  const name = normalizeWhitespace($("#newAccountNameInput")?.value).slice(0, 80);
+  const email = normalizeWhitespace($("#newAccountEmailInput")?.value).toLocaleLowerCase("id-ID");
+  const password = $("#newAccountPasswordInput")?.value || "";
+  const role = $("#newAccountRoleInput")?.value === "admin" ? "admin" : "pic";
+  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 6) {
+    showToast({ message: "Isi nama, email valid, dan password sementara minimal 6 karakter.", type: "warning" });
+    return;
+  }
+  if (allTeamAccounts({ includeInactive: true }).some((account) => account.email === email && account.active)) {
+    showToast({ message: "Email tersebut sudah terdaftar sebagai akun aktif.", type: "warning" });
+    return;
+  }
+  let secondaryApp = null;
+  let createdSecondaryUser = null;
+  try {
+    secondaryApp = initializeApp(firebaseConfig, `account-creator-${Date.now()}`);
+    const secondaryAuth = getAuth(secondaryApp);
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+    createdSecondaryUser = credential.user;
+    await updateProfile(credential.user, { displayName: name });
+    const record = cleanFirebaseValue({
+      uid: credential.user.uid,
+      id: slugifyAccountId(name),
+      name,
+      email,
+      avatar: "",
+      role,
+      active: true,
+      picAliases: [],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      createdBy: currentTeamAccountId()
+    });
+    await update(realtimeTeamAccountsRef, { [credential.user.uid]: record });
+    await signOut(secondaryAuth);
+    state.masters.pics = sortText(unique([...(state.masters.pics || []), name]));
+    saveState();
+    recordAuditLog({ action: "ACCOUNT_CREATED", entityType: "account", entityId: record.id, target: name, summary: `Akun ${name} dibuat sebagai ${role === "admin" ? "Administrator" : "PIC"}.`, changes: [] });
+    $("#createAccountForm")?.reset();
+    showToast({ message: `Akun ${name} berhasil dibuat dan otomatis masuk daftar PIC.`, type: "success" });
+  } catch (error) {
+    if (createdSecondaryUser) await deleteUser(createdSecondaryUser).catch(() => {});
+    console.error("Akun baru tidak dapat dibuat.", error);
+    const message = error?.code === "auth/email-already-in-use"
+      ? "Email tersebut sudah digunakan di Firebase Authentication."
+      : error?.code === "auth/weak-password"
+        ? "Password sementara terlalu lemah."
+        : "Akun belum dapat dibuat. Periksa Firebase Authentication dan Rules teamAccounts.";
+    showToast({ message, type: "error" });
+  } finally {
+    if (secondaryApp) await deleteApp(secondaryApp).catch(() => {});
+  }
+}
+
+function renderAccountManagementList() {
+  const list = $("#teamAccountManagementList");
+  if (!list) return;
+  const currentId = currentTeamAccountId();
+  const accounts = allTeamAccounts({ includeInactive: true });
+  list.innerHTML = accounts.length ? accounts.map((account) => {
+    const isSelf = account.id === currentId;
+    const status = account.active ? "Aktif" : "Nonaktif";
+    return `<article class="team-account-card ${account.active ? "is-active" : "is-inactive"}">
+      ${accountAvatarMarkup(account, "team-account-avatar")}
+      <div class="team-account-copy"><strong>${escapeHTML(account.name)}</strong><span>${escapeHTML(account.email)}</span><small>${account.role === "admin" ? "Administrator" : "PIC"} · ${status}</small></div>
+      <div class="team-account-actions">${isSelf ? `<span class="team-account-self">Akun kamu</span>` : `<button class="secondary-button" data-account-toggle="${escapeHTML(account.id)}" data-account-active="${String(account.active)}" type="button">${account.active ? "Nonaktifkan" : "Aktifkan"}</button>`}</div>
+    </article>`;
+  }).join("") : `<div class="team-account-empty">Belum ada akun tim.</div>`;
+}
+
+async function toggleTeamAccountActive(accountId, currentlyActive) {
+  if (!currentAccountIsAdmin()) return;
+  const account = teamAccountById(accountId, true);
+  if (!account || account.id === currentTeamAccountId()) return;
+  if (currentlyActive && account.role === "admin") {
+    const activeAdmins = allTeamAccounts().filter((item) => item.role === "admin");
+    if (activeAdmins.length <= 1) {
+      showToast({ message: "Administrator terakhir tidak dapat dinonaktifkan.", type: "warning" });
+      return;
+    }
+  }
+  const key = teamAccountFirebaseKey(account) || account.uid;
+  if (!key) {
+    showToast({ message: "Akun belum memiliki profil Firebase yang dapat diubah.", type: "error" });
+    return;
+  }
+  try {
+    const active = !currentlyActive;
+    await update(realtimeTeamAccountsRef, { [key]: cleanFirebaseValue({ ...account, active, updatedAt: nowIso(), deletedAt: "" }) });
+    recordAuditLog({
+      action: active ? "ACCOUNT_REACTIVATED" : "ACCOUNT_DEACTIVATED",
+      entityType: "account",
+      entityId: account.id,
+      target: account.name,
+      summary: `Akun ${account.name} ${active ? "diaktifkan kembali" : "dinonaktifkan"}.`,
+      changes: [{ field: "Status", before: currentlyActive ? "Aktif" : "Nonaktif", after: active ? "Aktif" : "Nonaktif" }]
+    });
+    showToast({ message: `Akun ${account.name} ${active ? "diaktifkan" : "dinonaktifkan"}.`, type: "success" });
+  } catch (error) {
+    console.error("Status akun tidak dapat diubah.", error);
+    showToast({ message: "Status akun belum dapat diubah. Periksa Firebase Rules.", type: "error" });
+  }
+}
+
+async function deleteOwnAccountFromApp(event) {
+  event?.preventDefault();
+  const account = currentTeamAccount();
+  const user = currentFirebaseUser;
+  const password = $("#deleteAccountPasswordInput")?.value || "";
+  const confirmation = normalizeWhitespace($("#deleteAccountConfirmationInput")?.value).toLocaleUpperCase("id-ID");
+  if (!account || !user) return;
+  if (confirmation !== "HAPUS") {
+    showToast({ message: "Ketik HAPUS untuk mengonfirmasi penghapusan akun.", type: "warning" });
+    return;
+  }
+  if (account.role === "admin" && allTeamAccounts().filter((item) => item.role === "admin").length <= 1) {
+    showToast({ message: "Administrator terakhir tidak dapat menghapus akunnya.", type: "warning" });
+    return;
+  }
+  const key = teamAccountFirebaseKey(account) || user.uid;
+  try {
+    await reauthenticateCurrentUser(password);
+    accountDeletionInProgress = true;
+    await recordAuditLog({ action: "ACCOUNT_DELETED", entityType: "account", entityId: account.id, target: account.name, summary: `Akun ${account.name} menghapus akunnya sendiri.`, changes: [] });
+    await update(realtimeTeamAccountsRef, { [key]: cleanFirebaseValue({ ...account, active: false, deletedAt: nowIso(), updatedAt: nowIso() }) });
+    await deleteUser(user);
+    closeProfileModal();
+  } catch (error) {
+    console.error("Akun tidak dapat dihapus.", error);
+    if (key && user) await update(realtimeTeamAccountsRef, { [key]: cleanFirebaseValue({ ...account, active: true, deletedAt: "", updatedAt: nowIso() }) }).catch(() => {});
+    const message = error?.code === "auth/invalid-credential" ? "Password saat ini tidak sesuai." : "Akun belum dapat dihapus. Silakan login ulang lalu coba lagi.";
+    showToast({ message, type: "error" });
+  } finally {
+    accountDeletionInProgress = false;
+  }
 }
 
 function firebaseRecord(plot) {
@@ -759,10 +1997,18 @@ function startFirebaseLoadTimeout() {
 function stopRealtimeDatabaseListeners() {
   if (unsubscribeMasters) unsubscribeMasters();
   if (unsubscribeSchedules) unsubscribeSchedules();
+  if (unsubscribeAuditLogs) unsubscribeAuditLogs();
+  if (unsubscribeMessages) unsubscribeMessages();
+  if (unsubscribeReminders) unsubscribeReminders();
+  if (unsubscribeTeamAccounts) unsubscribeTeamAccounts();
   if (unsubscribeConnection) unsubscribeConnection();
   clearFirebaseLoadTimeout();
   unsubscribeMasters = null;
   unsubscribeSchedules = null;
+  unsubscribeAuditLogs = null;
+  unsubscribeMessages = null;
+  unsubscribeReminders = null;
+  unsubscribeTeamAccounts = null;
   unsubscribeConnection = null;
   firebaseMasterLoaded = false;
   firebaseSchedulesLoaded = false;
@@ -770,6 +2016,7 @@ function stopRealtimeDatabaseListeners() {
   remotePlotings = new Map();
   firebaseInitialHydrationComplete = false;
   firebaseNeedsNameNormalizationSync = false;
+  teamAccountsLoaded = false;
 }
 
 function subscribeToRealtimeDatabase() {
@@ -809,6 +2056,63 @@ function subscribeToRealtimeDatabase() {
 
     if (realtimeDatabaseReady()) finishRealtimeHydration();
   }, (error) => handleRealtimeDatabaseError(error));
+
+
+  unsubscribeTeamAccounts = onValue(realtimeTeamAccountsRef, async (snapshot) => {
+    const rawAccounts = snapshot.exists() ? snapshot.val() : {};
+    teamAccounts = Object.entries(rawAccounts || {}).reduce((acc, [key, record]) => {
+      acc[key] = normalizeTeamAccountRecord(record, key);
+      return acc;
+    }, {});
+    teamAccountsLoaded = true;
+    await ensureCurrentTeamProfile();
+    if (currentFirebaseUser && currentTeamAccount()?.active) setAuthGate(false);
+    updateUserChip(currentFirebaseUser);
+    ensureSelectedTeamRecipient();
+    updateTeamChatBadges();
+    if (teamChatState.panelOpen) renderTeamChat();
+    if ($("#profileModalBackdrop")?.classList.contains("open")) renderProfileModal();
+    populateSelects();
+  }, (error) => {
+    console.error("Direktori akun tim tidak dapat dimuat.", error);
+    showToast({ message: "Direktori akun belum dapat dimuat. Periksa Firebase Rules untuk teamAccounts.", type: "warning" });
+  });
+
+  unsubscribeAuditLogs = onValue(realtimeAuditLogsRef, (snapshot) => {
+    const rawLogs = snapshot.exists() ? snapshot.val() : {};
+    auditLogs = Object.entries(rawLogs || {})
+      .map(([id, record]) => ({ id, ...(record || {}) }))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    if (activeView === "auditlog") renderAuditLog();
+  }, (error) => {
+    console.error("Audit Log tidak dapat dimuat.", error);
+    if (activeView === "auditlog") showToast({ message: "Audit Log tidak dapat dimuat. Periksa Firebase Rules.", type: "warning" });
+  });
+
+  unsubscribeMessages = onValue(realtimeMessagesRef, (snapshot) => {
+    const rawMessages = snapshot.exists() ? snapshot.val() : {};
+    teamMessages = Object.entries(rawMessages || {})
+      .map(([id, record]) => ({ id, ...(record || {}) }))
+      .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+    updateTeamChatBadges();
+    if (teamChatState.panelOpen) renderTeamChat();
+  }, (error) => {
+    console.error("Chat Tim tidak dapat dimuat.", error);
+    if (teamChatState.panelOpen) showToast({ message: "Chat Tim tidak dapat dimuat. Periksa Firebase Rules.", type: "warning" });
+  });
+
+  unsubscribeReminders = onValue(realtimeRemindersRef, (snapshot) => {
+    const rawReminders = snapshot.exists() ? snapshot.val() : {};
+    teamReminders = Object.entries(rawReminders || {})
+      .map(([id, record]) => ({ id, ...(record || {}) }))
+      .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+    updateTeamChatBadges();
+    if (teamChatState.panelOpen) renderTeamChat();
+    renderIncomingTeamReminderModal();
+  }, (error) => {
+    console.error("Reminder Tim tidak dapat dimuat.", error);
+    showToast({ message: "Reminder antar-PIC tidak dapat dimuat. Periksa Firebase Rules.", type: "warning" });
+  });
 }
 
 function finishRealtimeHydration() {
@@ -853,14 +2157,14 @@ function handleRealtimeDatabaseError(error) {
 
 async function signInWithPassword(event) {
   event?.preventDefault();
-  const account = getSelectedTeamAccount();
+  const emailInput = $("#authEmailInput");
   const passwordInput = $("#authPasswordInput");
   const signInButton = $("#passwordSignInButton");
+  const email = normalizeWhitespace(emailInput?.value).toLocaleLowerCase("id-ID");
   const password = passwordInput?.value || "";
 
-  if (!account || password.trim().length < 6) {
-    setAuthGate(true, "Masukkan password minimal 6 karakter.");
-    passwordInput?.focus();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 6) {
+    setAuthGate(true, "Masukkan email akun dan password minimal 6 karakter.");
     return;
   }
 
@@ -869,20 +2173,17 @@ async function signInWithPassword(event) {
       signInButton.disabled = true;
       signInButton.textContent = "Memeriksa akun...";
     }
-    await signInWithEmailAndPassword(firebaseAuth, account.email, password);
+    await signInWithEmailAndPassword(firebaseAuth, email, password);
     if (passwordInput) passwordInput.value = "";
-    // Sembunyikan login segera setelah Auth berhasil. Snapshot Realtime Database
-    // bisa menyusul beberapa detik kemudian, tetapi pengguna tidak boleh macet
-    // di layar login saat kredensial sudah valid.
-    setAuthGate(false);
+    setAuthGate(true, "Login berhasil. Memeriksa profil akun...");
     setFirebaseStatus("connecting", "Memuat data");
   } catch (error) {
     console.error("Login akun tim gagal.", error);
     const loginMessage = error?.code === "auth/invalid-credential"
-      ? "Password tidak sesuai. Periksa kembali password akun yang dipilih."
-      : "Login belum berhasil. Pastikan Email/Password aktif dan akun tim sudah dibuat di Firebase.";
+      ? "Email atau password tidak sesuai."
+      : "Login belum berhasil. Pastikan Email/Password aktif di Firebase Authentication.";
     setAuthGate(true, loginMessage);
-    showToast("Login belum berhasil.");
+    showToast({ message: "Login belum berhasil.", type: "error" });
   } finally {
     updateAuthForm();
   }
@@ -899,7 +2200,7 @@ async function signOutFromFirebase() {
 
 function initializeFirebaseRealtime() {
   firebaseBootstrapComplete = true;
-  setAuthGate(true, "Pilih akun tim lalu masukkan password.");
+  setAuthGate(true, "Masukkan email dan password akun tim.");
   setFirebaseStatus("connecting", "Menunggu login");
 
   onAuthStateChanged(firebaseAuth, (user) => {
@@ -908,18 +2209,26 @@ function initializeFirebaseRealtime() {
 
     if (!user) {
       stopRealtimeDatabaseListeners();
+      teamMessages = [];
+      teamReminders = [];
+      teamChatState = { selectedRecipientId: "", reminderComposerOpen: false, panelOpen: false };
+      teamAccounts = {};
+      teamAccountsLoaded = false;
+      closeIncomingTeamReminderModal();
+      updateTeamChatBadges();
       state.plotings = [];
       state.masters = normalizeMasters(defaultMasters, []);
       renderAll();
       setFirebaseStatus("connecting", "Menunggu login");
-      setAuthGate(true, "Pilih akun tim lalu masukkan password.");
+      setAuthGate(true, "Masukkan email dan password akun tim.");
       return;
     }
 
+    ensureSelectedTeamRecipient();
     // Tampilkan cache akun ini lebih dulu agar dashboard tidak menunggu seluruh
     // snapshot database. Data cache langsung diganti oleh snapshot realtime terbaru.
     const restoredFromCache = hydrateRealtimeCache(user);
-    setAuthGate(false);
+    setAuthGate(true, "Memeriksa profil akun...");
     if (restoredFromCache) {
       setFirebaseStatus("connecting", "Memuat pembaruan");
       renderAll();
@@ -955,7 +2264,7 @@ function populateSelects() {
   if (filters.brand.program && !brandPrograms.includes(filters.brand.program)) filters.brand.program = "";
   if (filters.brand.format && !brandFormats.includes(filters.brand.format)) filters.brand.format = "";
 
-  if (!filters.pic.pic || !pics.includes(filters.pic.pic)) filters.pic.pic = pics[0] || "";
+  if (filters.pic.pic && !pics.includes(filters.pic.pic)) filters.pic.pic = "";
   if (!filters.pic.year || !years.includes(filters.pic.year)) filters.pic.year = defaultYear;
   if (!filters.pic.quarter) filters.pic.quarter = defaultQuarter;
 
@@ -985,7 +2294,7 @@ function populateSelects() {
   setSelectOptions("#brandProgramSelect", brandPrograms, "Semua program", filters.brand.program);
   setSelectOptions("#brandFormatSelect", brandFormats, "Semua format VA", filters.brand.format);
 
-  setSelectOptions("#picReportSelect", pics, "Pilih PIC", filters.pic.pic);
+  setSelectOptions("#picReportSelect", pics, "Semua PIC", filters.pic.pic);
   setSelectPairs("#picReportYearSelect", yearPairs, "Pilih tahun", filters.pic.year);
   setSelectPairs("#picReportQuarterSelect", QUARTER_OPTIONS, "Pilih kuartal", filters.pic.quarter);
 
@@ -1000,7 +2309,7 @@ function populateSelects() {
   setSelectOptions("#plotFormatInput", state.masters.formats, "Pilih Format VA");
   setSelectOptions("#plotDurationInput", state.masters.durations, "Pilih Durasi");
   setSelectOptions("#plotGfxInput", state.masters.gfx, "Pilih Materi GFX");
-  setSelectOptions("#plotPicInput", state.masters.pics, "Pilih PIC Ploting");
+  setSelectOptions("#plotPicInput", activePicAccountNames(), "Pilih PIC Ploting");
 }
 
 function renderDashboard() {
@@ -1020,7 +2329,24 @@ function renderDashboard() {
     ["Jadwal minggu ini", upcoming.length, `${sum(upcoming.map((plot) => plot.spot))} spot · ${formatDate(currentWeek.start, { day: "2-digit", month: "short" })} s/d ${formatDate(currentWeek.end, { day: "2-digit", month: "short" })}`]
   ];
   $("#kpiGrid").innerHTML = kpis.map(([label, value, note]) => `<article class="kpi-card"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
-  $("#dashboardTodayBody").innerHTML = todayPlots.length ? todayPlots.map((plot) => `<tr><td>${unitLabelMarkup(plot.unit, "table")}</td><td><span class="cell-title">${escapeHTML(plot.program)}</span><span class="cell-subtitle">${escapeHTML(plot.brand)} · ${escapeHTML(plot.pod)}</span></td><td>${escapeHTML(plot.format)}</td><td>${plotSpotMarkup(plot)}</td><td>${badge(plot.airingStatus)}</td></tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
+  $("#dashboardTodayBody").innerHTML = todayPlots.length ? todayPlots.map((plot) => `<tr class="dashboard-today-row ${mobileCalendarStatusClass(plot)}">
+    <td class="dashboard-today-unit">${unitLabelMarkup(plot.unit, "table")}</td>
+    <td class="dashboard-today-copy">
+      <span class="cell-title dashboard-today-program dashboard-today-desktop-title">${escapeHTML(plot.program)}</span>
+      <span class="cell-subtitle dashboard-today-brand dashboard-today-desktop-subtitle">${escapeHTML(plot.brand)}<i aria-hidden="true">·</i>${escapeHTML(plot.pod)}</span>
+      <span class="dashboard-today-mobile-copy">
+        <strong>${escapeHTML(plot.brand)}</strong>
+        <small class="dashboard-today-mobile-program">${escapeHTML(plot.program)}</small>
+        <small class="dashboard-today-mobile-format">${escapeHTML(plot.format || "-")}</small>
+      </span>
+    </td>
+    <td class="dashboard-today-format">${escapeHTML(plot.format)}</td>
+    <td class="dashboard-today-spot">
+      <span class="dashboard-today-desktop-spot">${plotSpotMarkup(plot)}</span>
+      <span class="dashboard-today-mobile-spot ${spotClass(plot.spot, plot.airingStatus)}">${Number(plot.spot)}<small>spot</small></span>
+    </td>
+    <td class="dashboard-today-status">${badge(plot.airingStatus)}</td>
+  </tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
 
   $("#attentionList").innerHTML = attention.length ? attention.slice(0, 5).map((plot) => `<div class="attention-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><button class="row-action" data-edit-batch="${escapeHTML(plot.batchId)}" type="button">Edit</button></div>`).join("") : `<div class="attention-item"><div><strong>Tidak ada jadwal Planned dalam 3 hari.</strong><p>Silakan cek timeline jika ada perubahan dari sales.</p></div></div>`;
 
@@ -1146,19 +2472,23 @@ function renderBatches() {
   resultCount.textContent = allBatches.length;
   tableBody.innerHTML = pageBatches.length ? pageBatches.map((batch) => {
     const first = batch[0];
-    const period = batchPeriod(batch);
     const totalSpot = sum(batch.map((plot) => plot.spot));
     const uniquePrograms = unique(batch.map((plot) => plot.program));
     const uniqueUnits = unique(batch.map((plot) => plot.unit));
-    const periodLabel = period.start === period.end
-      ? formatDate(period.start)
-      : `${formatDate(period.start)} s/d ${formatDate(period.end)}`;
+    const benefitFormats = unique(batch.map((plot) => [plot.format, plot.duration].filter(Boolean).join(" · "))).filter(Boolean);
+    const benefitVersions = unique(batch.map((plot) => plot.version).filter(Boolean));
+    const benefitLabel = benefitFormats[0] || "Benefit belum diisi";
+    const benefitSubtitle = [
+      benefitFormats.length > 1 ? `+${benefitFormats.length - 1} benefit lain` : "",
+      benefitVersions[0] || "Tanpa versi",
+      first.gfx || ""
+    ].filter(Boolean).join(" · ");
     return `<tr>
-      <td><span class="cell-title">${escapeHTML(first.batchId)}</span><span class="cell-subtitle">${batch.length} jadwal</span></td>
+      <td><span class="cell-title">${escapeHTML(first.batchId)}</span><span class="cell-subtitle">${batch.length} jadwal · Update: ${formatDate(String(first.updatedAt || "").slice(0, 10))}</span></td>
       <td><span class="cell-title">${escapeHTML(first.brand)}</span><span class="cell-subtitle">${escapeHTML(first.advertiser)}</span></td>
       <td><span class="cell-title cell-title-unit">${unitLabelMarkup(first.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(first.program)}</span></span><span class="cell-subtitle">${uniqueUnits.length > 1 ? `${uniqueUnits.length} unit` : escapeHTML(first.pod)} · ${uniquePrograms.length} program</span></td>
       <td><span class="pic-chip">${escapeHTML(first.pic)}</span><span class="cell-subtitle">Sales: ${escapeHTML(first.sales)}</span></td>
-      <td><span class="cell-title">${escapeHTML(periodLabel)}</span><span class="cell-subtitle">Update: ${formatDate(String(first.updatedAt || "").slice(0, 10))}</span></td>
+      <td><span class="cell-title batch-benefit-title">${escapeHTML(benefitLabel)}</span><span class="cell-subtitle batch-benefit-subtitle">${escapeHTML(benefitSubtitle)}</span></td>
       <td>${batch.length}</td>
       <td>${spotMarkup(totalSpot)}</td>
       <td>${batchStatusMarkup(batch)}</td>
@@ -1193,7 +2523,7 @@ function renderDaily() {
   $("#dailyTimelineTitle").textContent = `Timeline ${formatDate(date)}`;
   $("#dailyTimelineCaption").textContent = `${plots.length} jadwal · ${sum(plots.map((plot) => plot.spot))} spot`;
   const metrics = [
-    ["Jadwal", plots.length, "Tanggal terpilih"],
+    ["Total Program", unique(plots.map((plot) => plot.program)).length, "Program pada tanggal terpilih"],
     ["Total spot", sum(plots.map((plot) => plot.spot)), "Akumulasi spot"],
     ["Brand", unique(plots.map((plot) => plot.brand)).length, "Brand aktif"],
     ["Unit", unique(plots.map((plot) => plot.unit)).length, "Unit on air"]
@@ -1205,7 +2535,19 @@ function renderDaily() {
   const days = Array.from({ length: 7 }, (_, index) => addDays(date, index));
   $("#sevenDayList").innerHTML = days.map((day) => {
     const daily = sortByDate(state.plotings.filter((plot) => plot.planAiring === day));
-    return `<div class="day-column"><h4>${formatDate(day, { weekday: "short", day: "2-digit", month: "short" })}<span>${daily.length} jadwal · ${sum(daily.map((plot) => plot.spot))} spot</span></h4>${daily.length ? daily.slice(0, 4).map((plot) => `<button class="day-event" data-edit-schedule="${escapeHTML(plot.id)}" type="button">${escapeHTML(plot.brand)}<small class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</small></button>`).join("") + (daily.length > 4 ? `<div class="calendar-more">+${daily.length - 4} lainnya</div>` : "") : `<span class="cell-subtitle">Tidak ada jadwal</span>`}</div>`;
+    const totalSpot = sum(daily.map((plot) => plot.spot));
+    const dateObject = new Date(`${day}T00:00:00`);
+    const weekdayLabel = new Intl.DateTimeFormat("id-ID", { weekday: "short" }).format(dateObject);
+    const monthLabel = new Intl.DateTimeFormat("id-ID", { month: "short" }).format(dateObject);
+    const eventMarkup = daily.length
+      ? daily.slice(0, 3).map((plot) => `<button class="day-event" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.brand} · ${Number(plot.spot)} spot`)}"><span class="day-event-brand">${escapeHTML(plot.brand)}</span><small class="${spotClass(plot.spot, plot.airingStatus)}">${Number(plot.spot)} spot</small></button>`).join("")
+      : `<div class="day-column-empty">Tidak ada jadwal</div>`;
+    const moreMarkup = daily.length > 3 ? `<div class="calendar-more">+${daily.length - 3} jadwal lain</div>` : "";
+    return `<article class="day-column ${day === date ? "is-current" : ""}">
+      <header class="day-column-head"><span>${escapeHTML(weekdayLabel)}</span><strong>${dateObject.getDate()}</strong><small>${escapeHTML(monthLabel)}</small></header>
+      <div class="day-column-summary"><strong>${totalSpot}</strong><span>spot · ${daily.length} jadwal</span></div>
+      <div class="day-column-events">${eventMarkup}${moreMarkup}</div>
+    </article>`;
   }).join("");
 }
 
@@ -1578,6 +2920,105 @@ function resetWaSegments() {
   renderWaGenerator();
 }
 
+
+function compactFullTimelineRows(dailyPlots) {
+  return Object.values((dailyPlots || []).reduce((groups, plot) => {
+    const key = [plot.unit, plot.brand, plot.program, plot.airingStatus].map((value) => String(value || "").trim()).join("::");
+    if (!groups[key]) {
+      groups[key] = {
+        unit: plot.unit,
+        brand: plot.brand,
+        program: plot.program,
+        airingStatus: plot.airingStatus,
+        firstId: plot.id,
+        spot: 0,
+        count: 0,
+        hasAlert: false,
+        isFinal: true
+      };
+    }
+    groups[key].spot += Number(plot.spot || 0);
+    groups[key].count += 1;
+    groups[key].hasAlert = groups[key].hasAlert || isAlertSpot(plot.spot, plot.airingStatus);
+    groups[key].isFinal = groups[key].isFinal && isFinalAiringStatus(plot.airingStatus);
+    return groups;
+  }, {})).sort((a, b) => {
+    const alertOrder = Number(b.hasAlert) - Number(a.hasAlert);
+    return alertOrder || unitSortIndex(a.unit) - unitSortIndex(b.unit) || a.brand.localeCompare(b.brand, "id") || a.program.localeCompare(b.program, "id");
+  });
+}
+
+function mobileCalendarStatusClass(plot) {
+  if (isInactiveAiringStatus(plot?.airingStatus) || isZeroSpot(plot?.spot)) return "is-alert";
+  if (isCompletedAiringStatus(plot?.airingStatus)) return "is-complete";
+  if (String(plot?.airingStatus || "").toLowerCase().includes("siap")) return "is-ready";
+  return "is-planned";
+}
+
+function mobileMonthCalendarMarkup({ month, daysInMonth, startOffset, eventsByDate, scope, renderItems }) {
+  const dates = Array.from({ length: daysInMonth }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`);
+  const activeDates = dates.filter((date) => (eventsByDate[date] || []).length);
+  const savedSelection = mobileCalendarSelections[scope];
+  const selectedDate = dates.includes(savedSelection)
+    ? savedSelection
+    : dates.includes(state.operationDate)
+      ? state.operationDate
+      : activeDates[0] || dates[0] || "";
+  mobileCalendarSelections[scope] = selectedDate;
+
+  const cells = [];
+  for (let index = 0; index < startOffset; index += 1) cells.push('<span class="mobile-month-day is-empty" aria-hidden="true"></span>');
+  dates.forEach((date, index) => {
+    const events = eventsByDate[date] || [];
+    const isToday = date === state.operationDate;
+    const isSelected = date === selectedDate;
+    const isComplete = allSchedulesFinal(events);
+    const hasAlert = events.some((plot) => isAlertSpot(plot.spot, plot.airingStatus));
+    const stateClass = [
+      isToday ? "is-today" : "",
+      isSelected ? "is-selected" : "",
+      isComplete ? "is-complete" : "",
+      hasAlert ? "has-alert" : "",
+      events.length ? "has-events" : ""
+    ].filter(Boolean).join(" ");
+    const dots = events.slice(0, 3).map((plot) => `<i class="mobile-month-dot ${mobileCalendarStatusClass(plot)}"></i>`).join("");
+    cells.push(`<button class="mobile-month-day ${stateClass}" type="button" data-mobile-calendar-scope="${escapeHTML(scope)}" data-mobile-calendar-date="${escapeHTML(date)}" aria-pressed="${String(isSelected)}" aria-label="${escapeHTML(`${formatDate(date, { weekday: "long", day: "numeric", month: "long" })}${events.length ? `, ${events.length} jadwal` : ", tidak ada jadwal"}`)}">
+      <span class="mobile-month-day-number">${index + 1}</span>
+      <span class="mobile-month-day-count">${events.length || ""}</span>
+      <span class="mobile-month-dots">${dots}</span>
+    </button>`);
+  });
+  const remainder = cells.length % 7;
+  if (remainder) for (let index = remainder; index < 7; index += 1) cells.push('<span class="mobile-month-day is-empty" aria-hidden="true"></span>');
+
+  const selectedEvents = eventsByDate[selectedDate] || [];
+  const selectedSpot = sum(selectedEvents.map((plot) => plot.spot));
+  const agenda = selectedEvents.length
+    ? `<section class="mobile-agenda-day is-selected-agenda" id="mobile-${scope}-selected-date">
+        <header class="mobile-agenda-day-head">
+          <div><span>${escapeHTML(formatDate(selectedDate, { weekday: "long" }))}</span><strong>${escapeHTML(formatDate(selectedDate, { day: "2-digit", month: "long" }))}</strong></div>
+          <small>${selectedEvents.length} jadwal · ${selectedSpot} spot</small>
+        </header>
+        <div class="mobile-agenda-list">${renderItems(selectedEvents, selectedDate)}</div>
+      </section>`
+    : `<section class="mobile-agenda-day is-selected-agenda">
+        <header class="mobile-agenda-day-head">
+          <div><span>${escapeHTML(formatDate(selectedDate, { weekday: "long" }))}</span><strong>${escapeHTML(formatDate(selectedDate, { day: "2-digit", month: "long" }))}</strong></div>
+          <small>0 jadwal · 0 spot</small>
+        </header>
+        <div class="mobile-calendar-empty">Tidak ada jadwal pada tanggal yang dipilih.</div>
+      </section>`;
+
+  return `<div class="mobile-calendar-app">
+    <div class="mobile-month-card">
+      <div class="mobile-month-title"><strong>${escapeHTML(formatMonth(month))}</strong><span>Pilih tanggal untuk melihat spot</span></div>
+      <div class="mobile-month-weekdays"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+      <div class="mobile-month-grid">${cells.join("")}</div>
+    </div>
+    <div class="mobile-calendar-agenda">${agenda}</div>
+  </div>`;
+}
+
 function renderFullTimeline() {
   const month = monthKeyFromPeriod(filters.full.year, filters.full.month) || monthKey(state.operationDate);
   const selectedUnit = filters.full.unit;
@@ -1595,7 +3036,7 @@ function renderFullTimeline() {
   const activeUnits = selectedUnit ? [selectedUnit] : sortText(unique(plots.map((plot) => plot.unit)));
 
   const metrics = [
-    ["Jadwal", plots.length, "Penayangan pada periode"],
+    ["Total Program", unique(plots.map((plot) => plot.program)).length, "Program pada periode"],
     ["Total spot", sum(plots.map((plot) => plot.spot)), "Akumulasi semua unit"],
     ["Unit On Air", activeUnits.length, "Unit dengan penayangan"],
     ["Brand", unique(plots.map((plot) => plot.brand)).length, "Brand pada timeline"]
@@ -1628,11 +3069,13 @@ function renderFullTimeline() {
     const isPast = date < state.operationDate;
     const isComplete = allSchedulesFinal(dailyPlots);
     const dayState = `${isPast ? " full-calendar-past" : ""}${isComplete ? " full-calendar-complete" : ""}`;
-    const eventMarkup = dailyPlots.length
-      ? `<div class="full-calendar-events full-calendar-events-all">${dailyPlots.map((plot) => `<button class="full-calendar-event full-calendar-event-grid ${isAlertSpot(plot.spot, plot.airingStatus) ? "is-zero-spot" : ""}${isFinalAiringStatus(plot.airingStatus) ? " is-complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.brand} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">
-          <span class="full-calendar-event-top"><span class="full-calendar-unit">${unitLabelMarkup(plot.unit, "calendar")}</span><span class="full-calendar-spot ${spotClass(plot.spot, plot.airingStatus)}">${plot.spot}</span></span>
-          <strong title="${escapeHTML(plot.brand)}">${escapeHTML(plot.brand)}</strong>
-          <span class="full-calendar-program" title="${escapeHTML(plot.program)}">${escapeHTML(plot.program)}</span>
+    const compactDailyRows = compactFullTimelineRows(dailyPlots);
+
+    const eventMarkup = compactDailyRows.length
+      ? `<div class="full-calendar-events full-calendar-events-all full-calendar-events-compact-visible">${compactDailyRows.map((item) => `<button class="full-calendar-event full-calendar-event-grid full-calendar-event-row ${item.hasAlert ? "is-zero-spot" : ""}${item.isFinal ? " is-complete" : ""}${isCompletedAiringStatus(item.airingStatus) && !item.hasAlert ? " is-aired" : ""}" data-edit-schedule="${escapeHTML(item.firstId)}" type="button" title="${escapeHTML(`${item.unit} · ${item.brand} · ${item.program} · ${item.spot} spot · ${item.count} jadwal · ${item.airingStatus}`)}">
+          <span class="full-calendar-unit">${unitLabelMarkup(item.unit, "calendar")}</span>
+          <span class="full-calendar-copy"><strong title="${escapeHTML(item.brand)}">${escapeHTML(item.brand)}</strong><small title="${escapeHTML(item.program)}">${escapeHTML(item.program)}</small></span>
+          <span class="full-calendar-spot ${item.hasAlert ? "spot-zero" : ""}">${item.spot}</span>
         </button>`).join("")}</div>`
       : `<span class="full-calendar-empty">Tidak ada jadwal</span>`;
 
@@ -1642,7 +3085,20 @@ function renderFullTimeline() {
     </div>`;
   }).join("");
 
-  $("#fullTimelineCalendar").innerHTML = calendarCells || `<div class="full-calendar-empty-state">Tidak ada jadwal untuk filter yang dipilih.</div>`;
+  const mobileCalendar = mobileMonthCalendarMarkup({
+    month,
+    daysInMonth,
+    startOffset: firstWeekday,
+    eventsByDate,
+    scope: "full",
+    renderItems: (dailyPlots) => compactFullTimelineRows(dailyPlots).map((item) => `<button class="mobile-agenda-item ${item.hasAlert ? "is-alert" : ""}${item.isFinal ? " is-complete" : ""}" data-edit-schedule="${escapeHTML(item.firstId)}" type="button">
+      <span class="mobile-agenda-unit">${unitLabelMarkup(item.unit, "calendar")}</span>
+      <span class="mobile-agenda-copy"><strong>${escapeHTML(item.brand)}</strong><small>${escapeHTML(item.program)} · ${escapeHTML(item.airingStatus)}</small></span>
+      <span class="mobile-agenda-spot ${item.hasAlert ? "spot-zero" : ""}">${item.spot}<small>spot</small></span>
+    </button>`).join("")
+  });
+
+  $("#fullTimelineCalendar").innerHTML = `<div class="desktop-calendar-grid">${calendarCells}</div>${mobileCalendar}`;
 
   if (!activeUnits.length) {
     $("#fullTimelineUnitSummary").innerHTML = `<div class="full-summary-empty">Tidak ada ringkasan unit pada periode ini.</div>`;
@@ -1678,16 +3134,24 @@ function renderBrand() {
   )));
   const titleParts = [brand, formatMonth(month), unit, program, format].filter(Boolean);
   $("#brandCalendarTitle").textContent = brand ? titleParts.join(" · ") : "Pilih brand";
+  const detailPrograms = unique(plots.map((plot) => plot.program));
+  const detailProgramLabel = program || (detailPrograms.length === 1 ? detailPrograms[0] : "Semua Program");
+  const detailProgramTitle = detailProgramLabel === "Semua Program" ? detailProgramLabel : formatBrandName(detailProgramLabel);
+  const detailTitle = brand
+    ? `Benefit Virtual Ads ${brand} ${formatMonth(month)}${detailProgramTitle ? ` - ${detailProgramTitle}` : ""}`
+    : "Benefit Virtual Ads";
+  const detailTitleElement = $("#brandDetailSnapshotTitle");
+  if (detailTitleElement) detailTitleElement.textContent = detailTitle;
   const stats = [
-    ["Jadwal", plots.length, "Tanggal tayang"],
+    ["Total Program", unique(plots.map((plot) => plot.program)).length, "Program pada periode"],
     ["Total spot", sum(plots.map((plot) => plot.spot)), "Periode terpilih"],
     ["Unit", unique(plots.map((plot) => plot.unit)).length, "Unit on air"],
-    ["Program", unique(plots.map((plot) => plot.program)).length, "Program aktif"]
+    ["Tanggal Tayang", unique(plots.map((plot) => plot.planAiring)).length, "Tanggal aktif"]
   ];
   $("#brandStats").innerHTML = stats.map(([label, value, note]) => `<article class="mini-kpi"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
   renderCalendar(month, plots);
   const totalSpot = sum(plots.map((plot) => plot.spot));
-  $("#brandTotalSpot").textContent = totalSpot;
+  $("#brandTotalSpot").textContent = `${totalSpot} spot`;
   const snapshotButton = $("#snapshotBrandDetailButton");
   if (snapshotButton) {
     snapshotButton.disabled = !plots.length;
@@ -1702,7 +3166,7 @@ function renderBrand() {
     <td>${plotSpotMarkup(plot)}</td>
     <td>${escapeHTML(plot.gfx)}</td>
     <td>${badge(plot.airingStatus)}</td>
-    <td class="schedule-note-cell">${plot.scheduleNote ? escapeHTML(plot.scheduleNote) : `<span class="empty-note">-</span>`}</td>
+    <td class="schedule-note-cell" title="${escapeHTML(plot.scheduleNote || "-")}">${plot.scheduleNote ? `<span class="schedule-note-text">${escapeHTML(plot.scheduleNote)}</span>` : `<span class="empty-note">-</span>`}</td>
     <td><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur Jadwal</button></td>
   </tr>`).join("") : `<tr><td colspan="8" class="empty-row">Tidak ada jadwal untuk brand dan periode ini.</td></tr>`;
 }
@@ -1729,14 +3193,43 @@ function renderCalendar(month, plots) {
       isPast ? "calendar-day--past" : "",
       isComplete ? "calendar-day--complete" : ""
     ].filter(Boolean).join(" ");
-    cells.push(`<div class="${dayClasses}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event ${isFinalAiringStatus(plot.airingStatus) ? "calendar-event--complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}">${unitLabelMarkup(plot.unit, "calendar")}<span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
+    cells.push(`<div class="${dayClasses}"><div class="calendar-day-number">${day}</div>${events.slice(0, 3).map((plot) => `<button class="calendar-event ${isFinalAiringStatus(plot.airingStatus) ? "calendar-event--complete" : ""}" data-edit-schedule="${escapeHTML(plot.id)}" type="button" title="${escapeHTML(`${plot.unit} · ${plot.program} · ${plot.spot} spot · ${plot.airingStatus}`)}"><span class="brand-calendar-unit-row">${unitLabelMarkup(plot.unit, "calendar")}</span><span class="calendar-program-title">${escapeHTML(plot.program)}</span><small class="brand-calendar-spot-row ${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</small></button>`).join("")}${events.length > 3 ? `<div class="calendar-more">+${events.length - 3} jadwal</div>` : ""}</div>`);
   }
   const remainder = cells.length % 7;
   if (remainder) for (let index = remainder; index < 7; index += 1) cells.push(`<div class="calendar-day muted-day"></div>`);
-  container.innerHTML = cells.join("");
+
+  const mobileCalendar = mobileMonthCalendarMarkup({
+    month,
+    daysInMonth,
+    startOffset,
+    eventsByDate: eventMap,
+    scope: "brand",
+    renderItems: (events) => sortByUnitThenProgram(events).map((plot) => `<button class="mobile-agenda-item ${mobileCalendarStatusClass(plot)}" data-edit-schedule="${escapeHTML(plot.id)}" type="button">
+      <span class="mobile-agenda-unit">${unitLabelMarkup(plot.unit, "calendar")}</span>
+      <span class="mobile-agenda-copy"><strong>${escapeHTML(plot.program)}</strong><small>${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)} · ${escapeHTML(plot.airingStatus)}</small></span>
+      <span class="mobile-agenda-spot ${spotClass(plot.spot, plot.airingStatus)}">${Number(plot.spot)}<small>spot</small></span>
+    </button>`).join("")
+  });
+
+  container.innerHTML = `<div class="desktop-calendar-grid">${cells.join("")}</div>${mobileCalendar}`;
+}
+
+function syncMobilePicReportSections() {
+  const mobile = isMobileAppLayout();
+  $$('[data-mobile-report-section]').forEach((section) => {
+    const key = section.dataset.mobileReportSection;
+    section.classList.toggle("is-open", !mobile || Boolean(mobilePicReportState.sections[key]));
+  });
+  $$('[data-mobile-report-toggle]').forEach((button) => {
+    const key = button.dataset.mobileReportToggle;
+    const open = !mobile || Boolean(mobilePicReportState.sections[key]);
+    button.classList.toggle("is-open", open);
+    button.setAttribute("aria-expanded", String(open));
+  });
 }
 
 function renderPicReport() {
+  const mobileReport = isMobileAppLayout();
   const selectedPic = filters.pic.pic;
   const selectedYear = filters.pic.year;
   const selectedQuarter = filters.pic.quarter;
@@ -1770,16 +3263,37 @@ function renderPicReport() {
   }).join("") : `<tr><td colspan="7" class="empty-row">Belum ada ploting pada periode ini.</td></tr>`;
 
   $("#picScopeTitle").textContent = `${selectedLabel} · ${periodLabel}`;
+  const summarizeScope = (field) => Object.entries(selectedPlots.reduce((acc, plot) => {
+    const value = normalizeWhitespace(plot[field]) || "-";
+    (acc[value] ||= []).push(plot);
+    return acc;
+  }, {})).map(([value, plots]) => ({
+    value,
+    count: plots.length,
+    spot: sum(plots.map((plot) => plot.spot))
+  })).sort((first, second) => second.count - first.count || second.spot - first.spot || first.value.localeCompare(second.value, "id"));
+
   const scopeGroups = [
-    { label: "Brand yang ditangani", values: unique(selectedPlots.map((plot) => plot.brand)) },
-    { label: "Program yang ditangani", values: unique(selectedPlots.map((plot) => plot.program)) },
-    { label: "Unit On Air", values: unique(selectedPlots.map((plot) => plot.unit)) }
+    { label: "Brand yang ditangani", items: summarizeScope("brand"), type: "text" },
+    { label: "Program yang ditangani", items: summarizeScope("program"), type: "text" },
+    { label: "Unit On Air", items: summarizeScope("unit"), type: "unit" }
   ];
-  $("#picScopeList").innerHTML = selectedPlots.length ? scopeGroups.map((group) => `<div class="pic-scope-group"><strong>${escapeHTML(group.label)}</strong><div>${group.values.map((value) => `<span>${escapeHTML(value)}</span>`).join("")}</div></div>`).join("") : `<div class="empty-row">Belum ada data untuk PIC dan kuartal yang dipilih.</div>`;
+  const scopeMarkup = scopeGroups.map((group) => {
+    const visibleItems = mobileReport ? group.items.slice(0, 6) : group.items;
+    const remaining = Math.max(0, group.items.length - visibleItems.length);
+    return `<article class="pic-scope-group">
+      <div class="pic-scope-group-head"><strong>${escapeHTML(group.label)}</strong><span>${group.items.length} item</span></div>
+      <div class="pic-scope-chip-grid">${visibleItems.map((item) => `<span class="pic-scope-chip">${group.type === "unit" ? unitLabelMarkup(item.value, "summary") : `<b title="${escapeHTML(item.value)}">${escapeHTML(item.value)}</b>`}<small>${item.count} jadwal · ${item.spot} spot</small></span>`).join("")}${remaining ? `<span class="pic-scope-more">+${remaining} lainnya</span>` : ""}</div>
+    </article>`;
+  }).join("");
+  $("#picScopeList").innerHTML = selectedPlots.length ? scopeMarkup : `<div class="pic-scope-empty">Belum ada data untuk PIC dan kuartal yang dipilih.</div>`;
 
   $("#picDetailTitle").textContent = `Jadwal ${selectedLabel}`;
   $("#picDetailCaption").textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot · ${periodLabel}`;
-  $("#picDetailBody").innerHTML = selectedPlots.length ? selectedPlots.map((plot) => `<tr>
+  const mobileDetailCaption = $("#mobilePicDetailToggleCaption");
+  if (mobileDetailCaption) mobileDetailCaption.textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot`;
+  const visibleDetailPlots = mobileReport ? selectedPlots.slice(0, mobilePicReportState.detailLimit) : selectedPlots;
+  $("#picDetailBody").innerHTML = visibleDetailPlots.length ? visibleDetailPlots.map((plot) => `<tr>
     <td>${formatDate(plot.planAiring)}</td>
     <td><span class="cell-title">${escapeHTML(plot.batchId)}</span><span class="cell-subtitle">${escapeHTML(plot.pic)}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.brand)}</span><span class="cell-subtitle">${escapeHTML(plot.advertiser)}</span></td>
@@ -1789,6 +3303,14 @@ function renderPicReport() {
     <td>${badge(plot.airingStatus)}</td>
     <td><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur Jadwal</button></td>
   </tr>`).join("") : `<tr><td colspan="8" class="empty-row">Tidak ada jadwal untuk PIC dan periode ini.</td></tr>`;
+  const detailMore = $("#mobilePicDetailMore");
+  if (detailMore) {
+    const remaining = Math.max(0, selectedPlots.length - visibleDetailPlots.length);
+    detailMore.innerHTML = mobileReport && remaining
+      ? `<button class="secondary-button mobile-report-more-button" data-mobile-report-more type="button">Tampilkan ${Math.min(8, remaining)} jadwal berikutnya <span>${visibleDetailPlots.length}/${selectedPlots.length}</span></button>`
+      : "";
+  }
+  syncMobilePicReportSections();
 }
 
 function renderMasters() {
@@ -1807,24 +3329,30 @@ function renderActiveView() {
     fulltimeline: renderFullTimeline,
     brand: renderBrand,
     picreport: renderPicReport,
-    masters: renderMasters
+    masters: renderMasters,
+    auditlog: renderAuditLog
   };
   renderers[activeView]?.();
 }
 
 function renderAll() {
+  document.body.dataset.activeView = activeView;
   // Saat dashboard dibuka pertama kali, jangan isi semua filter halaman tersembunyi.
   // Dropdown besar seperti brand, PIC, program, dan format baru dibuat saat halamannya dibuka.
-  if (!["dashboard", "guide"].includes(activeView)) populateSelects();
+  if (!["dashboard", "guide", "auditlog"].includes(activeView)) populateSelects();
   $("#operationDate").value = state.operationDate;
   renderActiveView();
+  renderCurrentPicOverdueReminderCard();
+  updateTeamChatBadges();
+  renderIncomingTeamReminderModal();
   updatePageTitle();
   updateNavState(activeView);
+  queueMobileTableEnhancement();
 }
 
 function updatePageTitle() {
   const labels = {
-    dashboard: ["OPERATIONS DASHBOARD", "VA Benefit Ploting"],
+    dashboard: ["OPERATIONS DASHBOARD", "Dashboard"],
     plotings: ["2026 VA DIGITAL", "Master Ploting VA"],
     batches: ["KELOLA BATCH", "Batch Ploting"],
     daily: ["PIVOT MASTER", "Timeline Harian"],
@@ -1833,6 +3361,7 @@ function updatePageTitle() {
     brand: ["TIMELINE BRAND", "Timeline Brand"],
     picreport: ["MONITORING PIC", "Report per PIC"],
     masters: ["DATABASE PILIHAN", "Master Data"],
+    auditlog: ["RIWAYAT AKTIVITAS", "Audit Log"],
     guide: ["PANDUAN OPERASIONAL", "Alur Kerja"]
   };
   const [eyebrow, title] = labels[activeView] || labels.dashboard;
@@ -1850,23 +3379,209 @@ function setNavGroupOpen(group, open) {
   if (submenu) submenu.hidden = !open;
 }
 
+const MOBILE_BOTTOM_VIEWS = new Set(["dashboard", "daily", "fulltimeline"]);
+let mobileTableEnhanceQueued = false;
+let mobileTableObserver = null;
+
+function setMobileMenuOpen(open) {
+  const sheet = $("#mobileMenuSheet");
+  const backdrop = $("#mobileMenuBackdrop");
+  const trigger = $("#mobileMoreButton");
+  if (!sheet || !backdrop || !trigger) return;
+  sheet.classList.toggle("is-open", open);
+  backdrop.classList.toggle("is-open", open);
+  sheet.setAttribute("aria-hidden", String(!open));
+  backdrop.setAttribute("aria-hidden", String(!open));
+  trigger.setAttribute("aria-expanded", String(open));
+  document.body.classList.toggle("mobile-menu-open", open);
+}
+
+function updateMobileNavState(view = activeView) {
+  $$(".mobile-bottom-item[data-mobile-view]").forEach((button) => {
+    const active = button.dataset.mobileView === view;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  $$(".mobile-menu-item[data-mobile-view]").forEach((button) => {
+    const active = button.dataset.mobileView === view;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  const moreButton = $("#mobileMoreButton");
+  if (moreButton) moreButton.classList.toggle("is-active", !MOBILE_BOTTOM_VIEWS.has(view));
+}
+
 function updateNavState(view = activeView) {
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$(".nav-group").forEach((group) => {
     const hasActiveChild = Array.from(group.querySelectorAll(".nav-item")).some((button) => button.dataset.view === view);
     group.classList.toggle("is-active", hasActiveChild);
-    if (hasActiveChild) setNavGroupOpen(group, true);
+  });
+  updateMobileNavState(view);
+}
+
+function mobileTablePrimaryIndex(table, headers) {
+  const classRules = [
+    ["plotings-table", 1],
+    ["batch-table", 1],
+    ["brand-detail-table", 1],
+    ["pic-overview-table", 0],
+    ["pic-detail-table", 2],
+    ["audit-log-table", 3]
+  ];
+  const matchedRule = classRules.find(([className]) => table.classList.contains(className));
+  if (matchedRule) return matchedRule[1];
+  const priorities = ["Program / Brand", "PT / Brand", "Brand", "Unit / Program", "PIC", "Batch"];
+  const priorityIndex = priorities.map((label) => headers.findIndex((header) => header === label)).find((index) => index >= 0);
+  return priorityIndex >= 0 ? priorityIndex : 0;
+}
+
+function enhanceMobileTables() {
+  mobileTableEnhanceQueued = false;
+  $$("table.data-table, table.compact-table").forEach((table) => {
+    if (table.classList.contains("schedule-table")) return;
+    // Dashboard today's schedule uses a dedicated compact list on mobile.
+    // Do not apply the generic mobile table-card transformation here.
+    if (table.classList.contains("dashboard-today-table") || table.closest("#dashboardView")) {
+      table.classList.remove("mobile-card-table");
+      table.querySelectorAll("tbody td, tfoot td").forEach((cell) => {
+        delete cell.dataset.label;
+        cell.classList.remove("mobile-card-primary", "mobile-card-meta", "mobile-card-compact", "mobile-card-action", "mobile-card-full");
+      });
+      return;
+    }
+    table.classList.add("mobile-card-table");
+    const headers = Array.from(table.querySelectorAll("thead th")).map((cell) => normalizeWhitespace(cell.textContent));
+    const primaryIndex = mobileTablePrimaryIndex(table, headers);
+    table.querySelectorAll("tbody tr, tfoot tr").forEach((row) => {
+      const cells = Array.from(row.children).filter((cell) => cell.tagName === "TD");
+      row.classList.toggle("mobile-card-row", cells.length > 0);
+      cells.forEach((cell, index) => {
+        const isSpanning = Number(cell.colSpan || 1) > 1;
+        const label = isSpanning ? "" : (headers[index] || "Detail");
+        cell.dataset.label = label;
+        cell.classList.remove("mobile-card-primary", "mobile-card-meta", "mobile-card-compact", "mobile-card-action", "mobile-card-full");
+        if (isSpanning) cell.classList.add("mobile-card-full");
+        if (!isSpanning && index === primaryIndex) cell.classList.add("mobile-card-primary");
+        if (!isSpanning && /tanggal|batch/i.test(label) && index !== primaryIndex) cell.classList.add("mobile-card-meta");
+        if (!isSpanning && /spot|status|tayang|jadwal|unit$/i.test(label)) cell.classList.add("mobile-card-compact");
+        if (cell.querySelector("button") && (!label || index === cells.length - 1)) cell.classList.add("mobile-card-action");
+      });
+    });
+  });
+}
+
+function queueMobileTableEnhancement() {
+  if (mobileTableEnhanceQueued) return;
+  mobileTableEnhanceQueued = true;
+  window.requestAnimationFrame(enhanceMobileTables);
+}
+
+function initializeMobileTableObserver() {
+  const main = $(".main-content");
+  if (!main || mobileTableObserver) return;
+  mobileTableObserver = new MutationObserver(queueMobileTableEnhancement);
+  mobileTableObserver.observe(main, { childList: true, subtree: true });
+  queueMobileTableEnhancement();
+}
+
+function createMobileFilterToggle(shell, label = "Filter") {
+  if (!shell || shell.querySelector(":scope > [data-mobile-filter-toggle]")) return;
+  shell.classList.add("mobile-filter-shell");
+  const button = document.createElement("button");
+  button.className = "mobile-filter-toggle";
+  button.type = "button";
+  button.dataset.mobileFilterToggle = "";
+  button.setAttribute("aria-expanded", "false");
+  button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg><span>${escapeHTML(label)}</span><b aria-hidden="true">⌄</b>`;
+  shell.prepend(button);
+}
+
+function initializeMobileFilterShells() {
+  const plotToolbar = $("#plotingsView .toolbar-plotings");
+  const batchToolbar = $("#batchesView .toolbar-batches");
+  if (plotToolbar) plotToolbar.dataset.mobileFilterKind = "toolbar";
+  if (batchToolbar) batchToolbar.dataset.mobileFilterKind = "toolbar";
+  createMobileFilterToggle(plotToolbar, "Filter ploting");
+  createMobileFilterToggle(batchToolbar, "Filter batch");
+
+  [$("#fullTimelineView .filter-panel"), $("#brandView .filter-panel")].forEach((panel) => {
+    if (!panel) return;
+    panel.dataset.mobileFilterKind = "panel";
+    createMobileFilterToggle(panel, "Tampilkan filter");
+  });
+
+  const reportActions = $("#picReportView .report-header-actions");
+  if (reportActions) {
+    reportActions.dataset.mobileFilterKind = "report";
+    createMobileFilterToggle(reportActions, "Filter report");
+  }
+}
+
+function bindMobileAppEvents() {
+  $$("[data-mobile-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setView(button.dataset.mobileView);
+      setMobileMenuOpen(false);
+    });
+  });
+  $("#mobileCreateButton")?.addEventListener("click", () => {
+    setMobileMenuOpen(false);
+    openPlotModal();
+  });
+  $("#mobileMoreButton")?.addEventListener("click", () => {
+    const sheet = $("#mobileMenuSheet");
+    setMobileMenuOpen(!sheet?.classList.contains("is-open"));
+  });
+  $("#mobileMenuClose")?.addEventListener("click", () => setMobileMenuOpen(false));
+  $("#mobileMenuBackdrop")?.addEventListener("click", () => setMobileMenuOpen(false));
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-mobile-filter-toggle]");
+    if (!toggle) return;
+    const shell = toggle.closest(".mobile-filter-shell");
+    if (!shell) return;
+    const open = !shell.classList.contains("is-open");
+    shell.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    const label = toggle.querySelector("span");
+    if (label) label.textContent = open ? "Tutup filter" : (shell.dataset.mobileFilterKind === "report" ? "Filter report" : shell.dataset.mobileFilterKind === "toolbar" ? "Tampilkan filter" : "Tampilkan filter");
+  });
+  document.addEventListener("click", (event) => {
+    const dayButton = event.target.closest("[data-mobile-calendar-date]");
+    if (!dayButton) return;
+    const scope = dayButton.dataset.mobileCalendarScope;
+    const date = dayButton.dataset.mobileCalendarDate;
+    if (!scope || !date || !Object.prototype.hasOwnProperty.call(mobileCalendarSelections, scope)) return;
+    mobileCalendarSelections[scope] = date;
+    const scrollTop = window.scrollY;
+    if (scope === "full") renderFullTimeline();
+    if (scope === "brand") renderBrand();
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: scrollTop, behavior: "auto" });
+      document.querySelector(`#${scope === "full" ? "fullTimelineView" : "brandView"} .mobile-agenda-day`)?.classList.add("is-highlighted");
+      window.setTimeout(() => document.querySelector(`#${scope === "full" ? "fullTimelineView" : "brandView"} .mobile-agenda-day`)?.classList.remove("is-highlighted"), 550);
+    });
+  });
+}
+
+function closeAllNavGroups(exceptGroup = null) {
+  $$(".nav-group").forEach((group) => {
+    if (group !== exceptGroup) setNavGroupOpen(group, false);
   });
 }
 
 function setView(view) {
   activeView = view;
+  setMobileMenuOpen(false);
+  document.body.dataset.activeView = view;
+  closeAllNavGroups();
   updateNavState(view);
   $$("[data-view-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.viewPanel === view));
   // Render halaman saat dibuka, bukan pada saat aplikasi pertama kali dimuat.
-  populateSelects();
+  if (!["dashboard", "guide", "auditlog"].includes(view)) populateSelects();
   renderActiveView();
   updatePageTitle();
+  queueMobileTableEnhancement();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -2031,11 +3746,11 @@ function buildScheduleRow(date = state.operationDate, spot = 1, airingStatus = "
   const normalizedSpot = Number.isInteger(Number(spot)) && Number(spot) >= 0 ? Number(spot) : 1;
   const spotWarningClass = isAlertSpot(normalizedSpot, airingStatus) ? " zero-spot-input" : "";
   return `<tr class="schedule-row">
-    <td><input class="schedule-date-input" type="date" value="${escapeHTML(date)}" required /></td>
-    <td><input class="schedule-spot-input${spotWarningClass}" type="number" min="0" max="999" step="1" value="${normalizedSpot}" required /></td>
-    <td><select class="schedule-status-input" required>${optionMarkup(AIRING_STATUSES, "Pilih status", airingStatus || "Planned")}</select></td>
-    <td><input class="schedule-note-input" maxlength="220" value="${escapeHTML(scheduleNote)}" placeholder="Note khusus tanggal ini" /></td>
-    <td><button class="remove-schedule" data-remove-schedule type="button">Hapus</button></td>
+    <td class="schedule-card-field schedule-card-date"><label><span class="schedule-field-label">Tanggal tayang</span><input class="schedule-date-input" type="date" value="${escapeHTML(date)}" required /></label></td>
+    <td class="schedule-card-field schedule-card-spot"><label><span class="schedule-field-label">Jumlah spot</span><input class="schedule-spot-input${spotWarningClass}" type="number" min="0" max="999" step="1" value="${normalizedSpot}" required /></label></td>
+    <td class="schedule-card-field schedule-card-status"><label><span class="schedule-field-label">Status tayang</span><select class="schedule-status-input" required>${optionMarkup(AIRING_STATUSES, "Pilih status", airingStatus || "Planned")}</select></label></td>
+    <td class="schedule-card-field schedule-card-note"><label><span class="schedule-field-label">Note tambahan</span><input class="schedule-note-input" maxlength="220" value="${escapeHTML(scheduleNote)}" placeholder="Note khusus tanggal ini" /></label></td>
+    <td class="schedule-card-action"><button class="remove-schedule" data-remove-schedule type="button">Hapus jadwal</button></td>
   </tr>`;
 }
 
@@ -2173,8 +3888,10 @@ function savePlotFromForm(event) {
 
   const existingBatchId = $("#plotBatchIdInput").value;
   const createdAt = nowIso();
+  let auditEntry = null;
   if (existingBatchId) {
     const oldBatch = getBatch(existingBatchId);
+    const beforeSnapshot = batchAuditSnapshot(oldBatch);
     const originalCreatedAt = oldBatch[0]?.createdAt || createdAt;
     state.plotings = state.plotings.filter((plot) => plot.batchId !== existingBatchId);
     schedules.sort((a, b) => a.date.localeCompare(b.date)).forEach((schedule) => state.plotings.push({
@@ -2188,6 +3905,13 @@ function savePlotFromForm(event) {
       createdAt: originalCreatedAt,
       updatedAt: nowIso()
     }));
+    const updatedBatch = getBatch(existingBatchId);
+    auditEntry = {
+      action: "BATCH_UPDATED", entityType: "batch", entityId: existingBatchId,
+      target: auditTargetFromPlot(updatedBatch[0]),
+      summary: `Batch ${existingBatchId} diperbarui untuk ${schedules.length} tanggal.`,
+      changes: auditChanges(beforeSnapshot, batchAuditSnapshot(updatedBatch), ["advertiser", "brand", "sales", "pic", "unit", "program", "pod", "version", "format", "duration", "gfx", "segmentation", "batchNote", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
+    };
     showToast(`Batch ${existingBatchId} diperbarui untuk ${schedules.length} tanggal.`);
   } else {
     const newBatchId = nextId("BEN", batches().map((batch) => ({ id: batch[0].batchId })));
@@ -2202,12 +3926,20 @@ function savePlotFromForm(event) {
       createdAt,
       updatedAt: createdAt
     }));
+    const newBatch = getBatch(newBatchId);
+    auditEntry = {
+      action: "BATCH_CREATED", entityType: "batch", entityId: newBatchId,
+      target: auditTargetFromPlot(newBatch[0]),
+      summary: `Batch ${newBatchId} dibuat dengan ${schedules.length} jadwal dan ${sum(schedules.map((item) => item.spot))} spot.`,
+      changes: auditChanges({}, batchAuditSnapshot(newBatch), ["advertiser", "brand", "sales", "pic", "unit", "program", "pod", "version", "format", "duration", "gfx", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
+    };
     showToast(`Batch ${newBatchId} disimpan. ${schedules.length} jadwal dibuat otomatis.`);
   }
   state.masters = normalizeMasters(state.masters, state.plotings);
   saveState();
   closePlotModal();
   renderAll();
+  recordAuditLog(auditEntry);
 }
 
 function appendScheduleNote(currentNote, addition) {
@@ -2291,6 +4023,7 @@ function saveScheduleFromForm(event) {
   const scheduleId = $("#scheduleEditIdInput").value;
   const plot = state.plotings.find((item) => item.id === scheduleId);
   if (!plot) { showToast("Jadwal tidak ditemukan."); closeScheduleModal(); return; }
+  const beforePlot = clone(plot);
 
   const date = $("#scheduleEditDateInput").value;
   const spot = Number($("#scheduleEditSpotInput").value);
@@ -2359,6 +4092,13 @@ function saveScheduleFromForm(event) {
     closeScheduleModal();
     renderAll();
     showToast(`${movedSpot} spot digeser ke ${formatDate(slideDate)} dalam batch ${plot.batchId}.`);
+    recordAuditLog({
+      action: "SCHEDULE_SLID", entityType: "schedule", entityId: plot.id,
+      target: auditTargetFromPlot(plot),
+      summary: `${movedSpot} spot digeser dari ${formatDate(date)} ke ${formatDate(slideDate)} dalam ${plot.batchId}.`,
+      changes: auditChanges(beforePlot, plot, ["planAiring", "spot", "airingStatus", "scheduleNote"]),
+      metadata: { targetDate: slideDate, batchId: plot.batchId }
+    });
     return;
   }
 
@@ -2371,6 +4111,13 @@ function saveScheduleFromForm(event) {
   closeScheduleModal();
   renderAll();
   showToast(`Jadwal ${formatDate(date)} diperbarui.`);
+  recordAuditLog({
+    action: "SCHEDULE_UPDATED", entityType: "schedule", entityId: plot.id,
+    target: auditTargetFromPlot(plot),
+    summary: `Jadwal ${formatDate(date)} pada ${plot.batchId} diperbarui.`,
+    changes: auditChanges(beforePlot, plot, ["planAiring", "spot", "airingStatus", "scheduleNote"]),
+    metadata: { batchId: plot.batchId }
+  });
 }
 
 function deleteSchedule(scheduleId) {
@@ -2391,6 +4138,13 @@ function deleteSchedule(scheduleId) {
   closeScheduleModal();
   renderAll();
   showToast(isLastSchedule ? `Batch ${plot.batchId} dihapus karena tidak memiliki jadwal lagi.` : `Jadwal ${formatDate(plot.planAiring)} dihapus dari ${plot.batchId}.`);
+  recordAuditLog({
+    action: "SCHEDULE_DELETED", entityType: "schedule", entityId: plot.id,
+    target: auditTargetFromPlot(plot),
+    summary: isLastSchedule ? `Jadwal terakhir dihapus sehingga batch ${plot.batchId} ikut terhapus.` : `Jadwal ${formatDate(plot.planAiring)} dihapus dari ${plot.batchId}.`,
+    changes: [{ field: "schedule", label: "Jadwal", before: `${formatDate(plot.planAiring)} · ${plot.spot} spot · ${plot.airingStatus}`, after: "Dihapus" }],
+    metadata: { batchId: plot.batchId, removedBatch: isLastSchedule }
+  });
 }
 
 function addMasterValue(event) {
@@ -2405,6 +4159,12 @@ function addMasterValue(event) {
   saveState();
   renderAll();
   showToast(`${MASTER_META[key].label} ditambahkan ke Master Data.`);
+  recordAuditLog({
+    action: "MASTER_CREATED", entityType: "master", entityId: key,
+    target: MASTER_META[key].label,
+    summary: `${value} ditambahkan ke ${MASTER_META[key].label}.`,
+    changes: [{ field: key, label: MASTER_META[key].label, before: "-", after: value }]
+  });
 }
 
 function deleteMasterValue(key, encodedValue) {
@@ -2423,6 +4183,12 @@ function deleteMasterValue(key, encodedValue) {
   saveState();
   renderAll();
   showToast(`${meta.label} dihapus dari Master Data.`);
+  recordAuditLog({
+    action: "MASTER_DELETED", entityType: "master", entityId: key,
+    target: meta.label,
+    summary: `${value} dihapus dari ${meta.label}.`,
+    changes: [{ field: key, label: meta.label, before: value, after: "Dihapus" }]
+  });
 }
 
 
@@ -2536,7 +4302,7 @@ function importedId(prefix, serial) {
 }
 
 function getDefaultLegacyImportPic() {
-  const activeName = TEAM_ACCOUNT_BY_EMAIL[String(currentFirebaseUser?.email || "").toLowerCase()]?.name;
+  const activeName = currentTeamAccount()?.name;
   return state.masters.pics.includes(activeName) ? activeName : "Belum ditetapkan";
 }
 
@@ -2679,6 +4445,23 @@ function fallbackDownloadSnapshot(imageBlob) {
   downloadBlob(imageBlob, snapshotFileName());
 }
 
+function formatBrandSnapshotTimestamp(date = new Date()) {
+  const formatterOptions = { timeZone: "Asia/Jakarta" };
+  const time = new Intl.DateTimeFormat("id-ID", {
+    ...formatterOptions,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date).replace(".", ":");
+  const dateLabel = new Intl.DateTimeFormat("id-ID", {
+    ...formatterOptions,
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  }).format(date);
+  return `${time} WIB - ${dateLabel}`;
+}
+
 async function snapshotBrandDetailTable() {
   const table = $("#brandDetailTable");
   const button = $("#snapshotBrandDetailButton");
@@ -2699,6 +4482,7 @@ async function snapshotBrandDetailTable() {
     const html2canvas = await loadHtml2Canvas();
     if (document.fonts?.ready) await document.fonts.ready;
 
+    const snapshotTimestamp = formatBrandSnapshotTimestamp();
     const tableBounds = table.getBoundingClientRect();
     const captureWidth = Math.ceil(Math.max(table.scrollWidth, tableBounds.width));
     const captureHeight = Math.ceil(Math.max(table.scrollHeight, tableBounds.height));
@@ -2720,10 +4504,19 @@ async function snapshotBrandDetailTable() {
         const clonedTable = clonedDocument.querySelector("#brandDetailTable");
         if (!clonedTable) return;
 
+        const clonedCaption = clonedTable.querySelector("#brandDetailSnapshotTitle");
+        if (clonedCaption) {
+          const timestamp = clonedDocument.createElement("span");
+          timestamp.className = "brand-detail-snapshot-time";
+          timestamp.textContent = snapshotTimestamp;
+          clonedCaption.appendChild(timestamp);
+        }
+
         // Kolom aksi hanya diperlukan saat mengelola jadwal di aplikasi dan tidak
         // relevan pada gambar yang dibagikan. Semua kolom data tetap dipertahankan.
         clonedTable.querySelectorAll("thead tr th:last-child, tbody tr td:last-child")
           .forEach((cell) => cell.remove());
+        clonedTable.querySelector("colgroup col:last-child")?.remove();
 
         const footerSpacer = clonedTable.querySelector("tfoot tr td:last-child");
         if (footerSpacer) footerSpacer.colSpan = Math.max(1, Number(footerSpacer.colSpan || 1) - 1);
@@ -3078,6 +4871,16 @@ async function commitLegacyImport() {
     closeLegacyImportModal();
     renderAll();
     showToast(`${importedRecords.length} jadwal lama berhasil diimpor.`);
+    recordAuditLog({
+      action: "LEGACY_IMPORTED", entityType: "import", entityId: session.file?.name || "legacy-excel",
+      target: session.file?.name || "File Excel data lama",
+      summary: `${importedRecords.length} jadwal lama diimpor menjadi ${session.batchCount} batch.`,
+      changes: [
+        { field: "scheduleCount", label: "Jadwal", before: "0", after: String(importedRecords.length) },
+        { field: "batchCount", label: "Batch", before: "0", after: String(session.batchCount) },
+        { field: "spot", label: "Total Spot", before: "0", after: String(sum(importedRecords.map((record) => record.spot))) }
+      ]
+    });
   } catch (error) {
     console.error("Gagal mengimpor data lama ke Realtime Database.", error);
     state = previousState;
@@ -3223,20 +5026,49 @@ function exportPicExcel() {
 
 function bindAuthenticationEvents() {
   $("#authLoginForm")?.addEventListener("submit", signInWithPassword);
-  $$(".auth-account-button").forEach((button) => {
-    button.addEventListener("click", () => selectTeamAccount(button.dataset.teamAccount, true));
-  });
+  $("#authEmailInput")?.addEventListener("input", updateAuthForm);
   $("#authPasswordInput")?.addEventListener("input", updateAuthForm);
-  $("#signOutButton")?.addEventListener("click", signOutFromFirebase);
+  $("#profileMenuButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setProfileMenuOpen(!profileMenuOpen);
+  });
+  $("#openProfileButton")?.addEventListener("click", () => openProfileModal("profile"));
+  $("#openAccountManagementButton")?.addEventListener("click", () => openProfileModal("accounts"));
+  $("#profileSignOutButton")?.addEventListener("click", signOutFromFirebase);
+  $("#profileForm")?.addEventListener("submit", saveCurrentProfile);
+  $("#createAccountForm")?.addEventListener("submit", createTeamAccount);
+  $("#deleteOwnAccountForm")?.addEventListener("submit", deleteOwnAccountFromApp);
+  $("#profileAvatarInput")?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      profileAvatarDraft = await profileImageToDataUrl(file);
+      renderProfileModal();
+    } catch (error) {
+      showToast({ message: error.message || "Foto profil tidak dapat diproses.", type: "warning" });
+    }
+  });
+  $("#removeProfileAvatarButton")?.addEventListener("click", () => {
+    profileAvatarDraft = "__REMOVE__";
+    const preview = $("#profileAvatarPreview");
+    if (preview) preview.innerHTML = accountAvatarMarkup({ ...currentTeamAccount(), avatar: "" }, "profile-avatar-preview-image");
+  });
 }
 
 function bindEvents() {
   $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $$(".nav-group-toggle").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       const group = button.closest(".nav-group");
-      setNavGroupOpen(group, !group?.classList.contains("is-open"));
+      const shouldOpen = !group?.classList.contains("is-open");
+      closeAllNavGroups(group);
+      setNavGroupOpen(group, shouldOpen);
     });
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".topnav-list")) closeAllNavGroups();
+    if (!event.target.closest("#profileMenuButton") && !event.target.closest("#profileMenuPanel")) setProfileMenuOpen(false);
   });
   $("#primaryActionButton").addEventListener("click", () => openPlotModal());
   $("#addPlotInlineButton").addEventListener("click", () => openPlotModal());
@@ -3256,6 +5088,21 @@ function bindEvents() {
   $("#scheduleEditDateInput").addEventListener("change", syncScheduleSlideControls);
   $("#scheduleSlideToggle").addEventListener("change", syncScheduleSlideControls);
   $("#masterForm").addEventListener("submit", addMasterValue);
+  $("#teamChatForm")?.addEventListener("submit", sendTeamChatMessage);
+  $("#teamChatMessageInput")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    if (!event.currentTarget.value.trim()) return;
+    event.currentTarget.form?.requestSubmit();
+  });
+  $("#teamReminderForm")?.addEventListener("submit", sendTeamReminder);
+  $("#teamChatLauncher")?.addEventListener("click", toggleFloatingTeamChat);
+  $("#closeTeamChatPanel")?.addEventListener("click", () => setFloatingTeamChatOpen(false));
+  $("#openTeamReminderComposerButton")?.addEventListener("click", () => {
+    teamChatState.reminderComposerOpen = true;
+    renderTeamChatConversation();
+    $("#teamReminderMessageInput")?.focus();
+  });
   $("#addScheduleButton").addEventListener("click", () => {
     addScheduleRow(addDays(state.operationDate, 1), 1, "Planned", "");
     if (!$("#multiDatePicker")?.hidden) renderMultiDatePicker();
@@ -3324,12 +5171,69 @@ function bindEvents() {
   $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; populateSelects(); renderBrand(); });
   $("#brandProgramSelect").addEventListener("change", (event) => { filters.brand.program = event.target.value; renderBrand(); });
   $("#brandFormatSelect").addEventListener("change", (event) => { filters.brand.format = event.target.value; renderBrand(); });
-  $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; renderPicReport(); });
-  $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; renderPicReport(); });
-  $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; renderPicReport(); });
+  $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
+  $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
+  $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
+  $("#auditSearchInput")?.addEventListener("input", (event) => { filters.audit.query = event.target.value; renderAuditLog(); });
+  $("#auditActorFilter")?.addEventListener("change", (event) => { filters.audit.actor = event.target.value; renderAuditLog(); });
+  $("#auditActionFilter")?.addEventListener("change", (event) => { filters.audit.action = event.target.value; renderAuditLog(); });
+  $("#resetAuditFilterButton")?.addEventListener("click", () => {
+    filters.audit = { query: "", actor: "", action: "" };
+    if ($("#auditSearchInput")) $("#auditSearchInput").value = "";
+    renderAuditLog();
+  });
   $("#masterTypeInput").addEventListener("change", (event) => { $("#masterValueInput").placeholder = MASTER_META[event.target.value].placeholder; });
 
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && $("#profileModalBackdrop")?.classList.contains("open")) {
+      closeProfileModal();
+      return;
+    }
+    if (event.key === "Escape" && teamChatState.panelOpen && !document.body.classList.contains("team-reminder-modal-open")) {
+      setFloatingTeamChatOpen(false);
+    }
+  });
+
   document.addEventListener("click", (event) => {
+    const profileTab = event.target.closest("[data-profile-tab]");
+    if (profileTab) {
+      profileActiveTab = profileTab.dataset.profileTab || "profile";
+      renderProfileModal();
+      return;
+    }
+    const closeProfile = event.target.closest("[data-close-profile-modal]");
+    if (closeProfile) {
+      closeProfileModal();
+      return;
+    }
+    const accountToggle = event.target.closest("[data-account-toggle]");
+    if (accountToggle) {
+      toggleTeamAccountActive(accountToggle.dataset.accountToggle || "", accountToggle.dataset.accountActive === "true");
+      return;
+    }
+    const chatContact = event.target.closest("[data-team-chat-contact]");
+    if (chatContact) {
+      teamChatState.selectedRecipientId = chatContact.dataset.teamChatContact || "";
+      teamChatState.reminderComposerOpen = false;
+      renderTeamChat();
+      return;
+    }
+    const closeReminderComposer = event.target.closest("[data-close-team-reminder-composer]");
+    if (closeReminderComposer) {
+      teamChatState.reminderComposerOpen = false;
+      renderTeamChatConversation();
+      return;
+    }
+    const reminderAction = event.target.closest("[data-team-reminder-action]");
+    if (reminderAction) {
+      updateTeamReminderStatus(reminderAction.dataset.teamReminderId || "", reminderAction.dataset.teamReminderAction || "read");
+      return;
+    }
+    const reminderModalAction = event.target.closest("[data-team-reminder-modal-action]");
+    if (reminderModalAction) {
+      handleIncomingReminderModalAction(reminderModalAction.dataset.teamReminderModalAction || "read");
+      return;
+    }
     const multiDateDay = event.target.closest("[data-multi-date-day]");
     if (multiDateDay && !multiDateDay.disabled) {
       toggleMultiDatePickerDate(multiDateDay.dataset.multiDateDay || "");
@@ -3389,8 +5293,23 @@ function bindEvents() {
       setView("daily");
       return;
     }
+    const mobileReportToggle = event.target.closest("[data-mobile-report-toggle]");
+    if (mobileReportToggle) {
+      const key = mobileReportToggle.dataset.mobileReportToggle;
+      if (key && Object.prototype.hasOwnProperty.call(mobilePicReportState.sections, key)) {
+        mobilePicReportState.sections[key] = !mobilePicReportState.sections[key];
+        syncMobilePicReportSections();
+      }
+      return;
+    }
+    const mobileReportMore = event.target.closest("[data-mobile-report-more]");
+    if (mobileReportMore) {
+      mobilePicReportState.detailLimit += 8;
+      renderPicReport();
+      return;
+    }
     const selectPic = event.target.closest("[data-select-pic]");
-    if (selectPic) { filters.pic.pic = decodeURIComponent(selectPic.dataset.selectPic || ""); populateSelects(); renderPicReport(); return; }
+    if (selectPic) { filters.pic.pic = decodeURIComponent(selectPic.dataset.selectPic || ""); mobilePicReportState.detailLimit = 8; populateSelects(); renderPicReport(); return; }
     const removeSchedule = event.target.closest("[data-remove-schedule]");
     if (removeSchedule) {
       const rows = $$("#scheduleRows .schedule-row");
@@ -3411,7 +5330,7 @@ function bindEvents() {
   $("#plotModalBackdrop").addEventListener("click", () => {});
   $("#scheduleModalBackdrop").addEventListener("click", () => {});
   $("#legacyImportModalBackdrop").addEventListener("click", () => {});
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); closeLegacyImportModal(); } });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); closeLegacyImportModal(); setMobileMenuOpen(false); } });
 }
 
 function watchOperationalDate() {
@@ -3424,10 +5343,13 @@ function watchOperationalDate() {
       renderAll();
       showToast("Tanggal operasional diperbarui ke hari ini.");
     }
+    renderIncomingTeamReminderModal();
   }, 60_000);
 }
 
 try { localStorage.removeItem(LOCAL_SETTINGS_KEY); } catch (error) { /* Pengaturan lama boleh diabaikan. */ }
+document.body.dataset.activeView = activeView;
+bindThemeEvents();
 
 // Autentikasi harus aktif lebih dulu. Kesalahan UI di halaman non-login tidak boleh
 // membuat pilihan akun atau tombol Masuk berhenti bekerja.
@@ -3435,6 +5357,9 @@ initializeFirebaseRealtime();
 bindAuthenticationEvents();
 
 try {
+  initializeMobileFilterShells();
+  bindMobileAppEvents();
+  initializeMobileTableObserver();
   bindEvents();
   renderAll();
   watchOperationalDate();

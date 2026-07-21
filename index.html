@@ -1,624 +1,854 @@
 <!DOCTYPE html>
+
 <html lang="id">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Dashboard operasional untuk ploting benefit Virtual Ad, timeline penayangan, generator WhatsApp, report PIC, dan master data realtime." />
-  <meta name="theme-color" content="#0b5a64" />
-  <title>VA Benefit Ploting</title>
-  <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
-  <link rel="preconnect" href="https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app" crossorigin />
-  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" crossorigin />
-  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" crossorigin />
-  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" crossorigin />
-  <link rel="modulepreload" href="app.js?v=71" />
-  <link rel="stylesheet" href="style.css?v=71" />
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="Dashboard operasional untuk ploting benefit Virtual Ad, timeline penayangan, generator WhatsApp, report PIC, dan master data realtime." name="description"/>
+<meta content="#075AA8" name="theme-color"/>
+<title>Benefit Virtual Ads 3TV — Digital Ploting Workspace</title>
+<script>
+(() => {
+  const storageKey = "va-benefit-color-theme";
+  let savedTheme = "";
+  try { savedTheme = localStorage.getItem(storageKey) || ""; } catch (error) { /* Storage preference is optional. */ }
+  const systemPrefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+  const theme = savedTheme === "dark" || savedTheme === "light"
+    ? savedTheme
+    : (systemPrefersDark ? "dark" : "light");
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.style.colorScheme = theme;
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.content = theme === "dark" ? "#1C3555" : "#075AA8";
+})();
+</script>
+<link crossorigin="" href="https://www.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<link crossorigin="" href="https://cdn.jsdelivr.net" rel="preconnect"/>
+<link crossorigin="" href="https://identitytoolkit.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://benefit-virtual-ads-default-rtdb.asia-southeast1.firebasedatabase.app" rel="preconnect"/>
+<link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" rel="modulepreload"/>
+<link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" rel="modulepreload"/>
+<link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" rel="modulepreload"/>
+<link href="app.js?v=122" rel="modulepreload"/>
+<link href="style.css?v=122" rel="stylesheet"/>
 </head>
-<body>
-  <section class="auth-gate" id="authGate" aria-live="polite" aria-labelledby="authGateTitle">
-    <div class="auth-card">
-      <div class="auth-brand"><span>VA</span><div><p>BENEFIT MANAGEMENT</p><strong>VA Ploting</strong></div></div>
-      <h2 id="authGateTitle">Masuk ke VA Ploting</h2>
-      <p id="authGateMessage">Pilih akun tim lalu masukkan password.</p>
-
-      <form id="authLoginForm" class="auth-login-form" novalidate>
-        <fieldset class="auth-account-picker">
-          <legend>Pilih akun</legend>
-          <div class="auth-account-grid">
-            <button class="auth-account-button is-selected" type="button" data-team-account="rakha" aria-pressed="true"><span>R</span><strong>Rakha</strong></button>
-            <button class="auth-account-button" type="button" data-team-account="adhi" aria-pressed="false"><span>A</span><strong>Adhi</strong></button>
-            <button class="auth-account-button" type="button" data-team-account="rian" aria-pressed="false"><span>R</span><strong>Rian</strong></button>
-          </div>
-        </fieldset>
-
-        <label class="auth-password-field" for="authPasswordInput">
-          <span>Password untuk <strong id="authSelectedName">Rakha</strong></span>
-          <input id="authPasswordInput" type="password" autocomplete="current-password" required minlength="6" placeholder="Masukkan password" />
-        </label>
-
-        <button class="primary-button auth-login-button" id="passwordSignInButton" type="submit" disabled>Masuk</button>
-      </form>
-      <p class="auth-note">Akun hanya untuk tim VA. Jika password lupa, hubungi admin Firebase.</p>
-    </div>
-  </section>
-
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand-lockup">
-        <div class="brand-mark">VA</div>
-        <div>
-          <p class="brand-kicker">BENEFIT MANAGEMENT</p>
-          <h1>VA Ploting</h1>
+<body data-active-view="dashboard">
+<section aria-labelledby="authGateTitle" aria-live="polite" class="auth-gate" id="authGate">
+<video class="auth-background-video" src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260714_113715_c7e0daa0-8bdd-4486-a2da-040901f8f0ea.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+<div class="auth-background-scrim" aria-hidden="true"></div>
+<button class="theme-toggle auth-theme-toggle" data-theme-toggle type="button" aria-label="Aktifkan mode gelap" aria-pressed="false" title="Aktifkan mode gelap">
+  <span class="theme-switch-track" aria-hidden="true">
+    <span class="theme-switch-thumb">
+      <svg class="theme-switch-icon theme-switch-icon--sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5V5M12 19V21.5M5.28 5.28L7.05 7.05M16.95 16.95L18.72 18.72M2.5 12H5M19 12H21.5M5.28 18.72L7.05 16.95M16.95 7.05L18.72 5.28"></path></svg>
+      <svg class="theme-switch-icon theme-switch-icon--moon" viewBox="0 0 24 24"><path d="M19.2 15.4A7.6 7.6 0 0 1 8.6 4.8a8.3 8.3 0 1 0 10.6 10.6Z"></path></svg>
+    </span>
+  </span>
+  <span class="visually-hidden" data-theme-toggle-label>Mode gelap</span>
+</button>
+<div class="auth-page-brand" aria-label="Benefit Virtual Ads 3TV">
+  <svg class="axon-mark axon-mark--auth" viewBox="0 0 256 256" aria-hidden="true"><path d="M 256 256 L 128 256 L 0 128 L 128 128 Z"></path><path d="M 256 128 L 128 128 L 0 0 L 128 0 Z"></path></svg>
+  <strong>Benefit Virtual Ads 3TV</strong>
+</div>
+<div class="auth-card">
+<div class="auth-brand"><span class="auth-brand-icon" aria-hidden="true"><svg class="axon-mark" viewBox="0 0 256 256"><path d="M 256 256 L 128 256 L 0 128 L 128 128 Z"></path><path d="M 256 128 L 128 128 L 0 0 L 128 0 Z"></path></svg></span><div><p>BENEFIT VIRTUAL ADS 3TV</p><strong>VA Ploting Workspace</strong></div></div>
+<h2 id="authGateTitle">Masuk ke workspace</h2>
+<p id="authGateMessage">Masukkan email dan password akun tim.</p>
+<form class="auth-login-form auth-login-form--dynamic" id="authLoginForm" novalidate="">
+<label class="auth-password-field" for="authEmailInput">
+<span>Email akun</span>
+<input autocomplete="username" id="authEmailInput" inputmode="email" placeholder="nama@benefit-virtual-ads.app" required="" type="email"/>
+</label>
+<label class="auth-password-field" for="authPasswordInput">
+<span>Password</span>
+<input autocomplete="current-password" id="authPasswordInput" minlength="6" placeholder="Masukkan password" required="" type="password"/>
+</label>
+<button class="primary-button auth-login-button" disabled="" id="passwordSignInButton" type="submit">Masuk</button>
+</form>
+<p class="auth-note">Akun baru dibuat melalui menu profil administrator setelah masuk.</p>
+</div>
+</section>
+<div class="app-shell">
+  <header class="app-topbar" aria-label="Navigasi aplikasi">
+    <div class="app-topbar-inner">
+      <div class="topbar-brand-wrap" aria-label="Benefit Virtual Ads 3TV">
+        <svg class="axon-mark axon-mark--topbar" viewBox="0 0 256 256" aria-hidden="true"><path d="M 256 256 L 128 256 L 0 128 L 128 128 Z"></path><path d="M 256 128 L 128 128 L 0 0 L 128 0 Z"></path></svg>
+        <div class="brand-lockup">
+          <h1>Benefit Virtual Ads 3TV</h1>
         </div>
       </div>
 
-      <div class="sidebar-unit-logos" aria-label="Logo Unit On Air">
-        <p>UNIT ON AIR</p>
-        <div>
-          <img src="assets/rcti.webp" alt="RCTI" decoding="async" loading="lazy" />
-          <img src="assets/mnctv.webp" alt="MNCTV" decoding="async" loading="lazy" />
-          <img src="assets/gtv.webp" alt="GTV" decoding="async" loading="lazy" />
-        </div>
+      <div class="topbar-unit-logos" aria-label="Logo Unit On Air">
+        <span class="topbar-unit-logo" title="RCTI"><img src="assets/rcti.webp" alt="RCTI" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>RCTI</b></span>
+        <span class="topbar-unit-logo" title="MNCTV"><img src="assets/mnctv.webp" alt="MNCTV" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>MNCTV</b></span>
+        <span class="topbar-unit-logo" title="GTV"><img src="assets/gtv.webp" alt="GTV" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>GTV</b></span>
       </div>
 
-      <nav class="nav-list nav-list--grouped" aria-label="Navigasi utama">
-        <button class="nav-item nav-item--standalone active" data-view="dashboard" type="button"><span class="nav-icon nav-icon-dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5v7A1.5 1.5 0 0 1 18.5 20H15v-5.2H9V20H5.5A1.5 1.5 0 0 1 4 18.5v-7Z"/><path d="M9 20v-5.2h6V20"/></svg></span><em>Dashboard</em></button>
+      <nav class="nav-list nav-list--grouped topnav-list" aria-label="Navigasi utama">
+        <button class="nav-item nav-item--standalone active" data-view="dashboard" type="button"><em>Dashboard</em></button>
 
-        <div class="nav-group is-open" data-nav-group="operations">
-          <button class="nav-group-toggle" type="button" aria-expanded="true">
-            <span class="nav-icon nav-icon-operations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v4H5z"/><path d="M5 11h14v8H5z"/><path d="M8 14h5"/><path d="M8 16.5h8"/></svg></span><em>Operasional</em><b aria-hidden="true">⌄</b>
-          </button>
-          <div class="nav-submenu">
-            <button class="nav-item nav-subitem" data-view="plotings" type="button"><span class="nav-icon nav-icon-master"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v14H6z"/><path d="M9 9h6"/><path d="M9 12h6"/><path d="M9 15h4"/></svg></span><em>Master Ploting VA</em></button>
-            <button class="nav-item nav-subitem" data-view="batches" type="button"><span class="nav-icon nav-icon-batch"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5 12 4l7 3.5-7 3.5-7-3.5Z"/><path d="M5 11.5 12 15l7-3.5"/><path d="M5 15.5 12 19l7-3.5"/></svg></span><em>Batch Ploting</em></button>
-            <button class="nav-item nav-subitem" data-view="daily" type="button"><span class="nav-icon nav-icon-daily"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12v14H6z"/><path d="M8 3v4"/><path d="M16 3v4"/><path d="M6 9h12"/><path d="M10 13h4"/></svg></span><em>Timeline Harian</em></button>
+        <div class="nav-group" data-nav-group="operations">
+          <button class="nav-group-toggle" type="button" aria-expanded="false"><em>Operasional</em><b aria-hidden="true">⌄</b></button>
+          <div class="nav-submenu" hidden>
+            <span class="nav-submenu-title">OPERASIONAL</span>
+            <button class="nav-item nav-subitem" data-view="plotings" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Master ploting</em></button>
+            <button class="nav-item nav-subitem" data-view="batches" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Batch ploting</em></button>
           </div>
         </div>
 
         <div class="nav-group" data-nav-group="timelines">
-          <button class="nav-group-toggle" type="button" aria-expanded="false">
-            <span class="nav-icon nav-icon-timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14"/><path d="M17 5v14"/><path d="M7 8h10"/><path d="M7 16h10"/><circle cx="7" cy="8" r="2"/><circle cx="17" cy="16" r="2"/></svg></span><em>Timeline</em><b aria-hidden="true">⌄</b>
-          </button>
+          <button class="nav-group-toggle" type="button" aria-expanded="false"><em>Timeline</em><b aria-hidden="true">⌄</b></button>
           <div class="nav-submenu" hidden>
-            <button class="nav-item nav-subitem" data-view="fulltimeline" type="button"><span class="nav-icon nav-icon-fullcalendar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v13H5z"/><path d="M8 4v4"/><path d="M16 4v4"/><path d="M5 10h14"/><path d="M8 13h2"/><path d="M12 13h2"/><path d="M16 13h2"/><path d="M8 16h2"/><path d="M12 16h2"/></svg></span><em>Kalender Full</em></button>
-            <button class="nav-item nav-subitem" data-view="brand" type="button"><span class="nav-icon nav-icon-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12V6h6l9 9-6 6-9-9Z"/><circle cx="8" cy="10" r="1.5"/></svg></span><em>Timeline Brand</em></button>
+            <span class="nav-submenu-title">TIMELINE</span>
+            <button class="nav-item nav-subitem" data-view="daily" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Jadwal harian</em></button>
+            <button class="nav-item nav-subitem" data-view="fulltimeline" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Kalender full</em></button>
+            <button class="nav-item nav-subitem" data-view="brand" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Timeline brand</em></button>
           </div>
         </div>
 
         <div class="nav-group" data-nav-group="outputs">
-          <button class="nav-group-toggle" type="button" aria-expanded="false">
-            <span class="nav-icon nav-icon-output"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8"/><path d="M8 13h5"/></svg></span><em>Output & Report</em><b aria-hidden="true">⌄</b>
-          </button>
+          <button class="nav-group-toggle" type="button" aria-expanded="false"><em>Output &amp; Report</em><b aria-hidden="true">⌄</b></button>
           <div class="nav-submenu" hidden>
-            <button class="nav-item nav-subitem" data-view="wagenerator" type="button"><span class="nav-icon nav-icon-wa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19.5 7.2 16A7 7 0 1 1 10 18.4l-4 1.1Z"/><path d="M9.2 9.2c.3 2.5 2.2 4.4 4.6 5"/><path d="M9.2 9.2 10.5 8l1.3 2-1 .8"/><path d="M13.8 14.2l.8-1 2 1.2-1.2 1.3"/></svg></span><em>Generator WhatsApp</em></button>
-            <button class="nav-item nav-subitem" data-view="picreport" type="button"><span class="nav-icon nav-icon-report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19h14"/><path d="M7 16v-5"/><path d="M12 16V7"/><path d="M17 16v-8"/><path d="M6 5h12"/></svg></span><em>Report PIC</em></button>
+            <span class="nav-submenu-title">OUTPUT &amp; REPORT</span>
+            <button class="nav-item nav-subitem" data-view="wagenerator" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Generator WhatsApp</em></button>
+            <button class="nav-item nav-subitem" data-view="picreport" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Report</em></button>
           </div>
         </div>
 
         <div class="nav-group" data-nav-group="system">
-          <button class="nav-group-toggle" type="button" aria-expanded="false">
-            <span class="nav-icon nav-icon-system"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"/><path d="M19 12a7.3 7.3 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7.7 7.7 0 0 0-1.7-1L14.5 3h-5l-.3 3.1a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.3 7.3 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.7 7.7 0 0 0 1.7 1l.3 3.1h5l.3-3.1a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z"/></svg></span><em>Sistem</em><b aria-hidden="true">⌄</b>
-          </button>
+          <button class="nav-group-toggle" type="button" aria-expanded="false"><em>Sistem</em><b aria-hidden="true">⌄</b></button>
           <div class="nav-submenu" hidden>
-            <button class="nav-item nav-subitem" data-view="masters" type="button"><span class="nav-icon nav-icon-data"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3Z"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7"/><path d="M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5"/></svg></span><em>Master Data</em></button>
-            <button class="nav-item nav-subitem" data-view="guide" type="button"><span class="nav-icon nav-icon-guide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h8a4 4 0 0 1 4 4v10H8a2 2 0 0 1-2-2V5Z"/><path d="M9 9h5"/><path d="M9 12h6"/><path d="M9 15h4"/></svg></span><em>Alur Kerja</em></button>
+            <span class="nav-submenu-title">SISTEM</span>
+            <button class="nav-item nav-subitem" data-view="masters" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Master Data</em></button>
+            <button class="nav-item nav-subitem" data-view="auditlog" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Audit Log</em></button>
+            <button class="nav-item nav-subitem" data-view="guide" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Alur Kerja</em></button>
           </div>
         </div>
       </nav>
-</aside>
 
-    <main class="main-content">
-      <header class="topbar">
-        <div class="page-heading">
-          <p class="eyebrow" id="pageEyebrow">OPERATIONS DASHBOARD</p>
-          <h2 id="pageTitle">VA Benefit Ploting</h2>
+      <div class="topbar-actions app-topbar-actions">
+        <button class="theme-toggle topbar-theme-toggle" data-theme-toggle type="button" aria-label="Aktifkan mode gelap" aria-pressed="false" title="Aktifkan mode gelap">
+  <span class="theme-switch-track" aria-hidden="true">
+    <span class="theme-switch-thumb">
+      <svg class="theme-switch-icon theme-switch-icon--sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5V5M12 19V21.5M5.28 5.28L7.05 7.05M16.95 16.95L18.72 18.72M2.5 12H5M19 12H21.5M5.28 18.72L7.05 16.95M16.95 7.05L18.72 5.28"></path></svg>
+      <svg class="theme-switch-icon theme-switch-icon--moon" viewBox="0 0 24 24"><path d="M19.2 15.4A7.6 7.6 0 0 1 8.6 4.8a8.3 8.3 0 1 0 10.6 10.6Z"></path></svg>
+    </span>
+  </span>
+  <span class="visually-hidden" data-theme-toggle-label>Mode gelap</span>
+</button>
+        <div class="sync-status" id="firebaseStatus" data-state="connecting" role="status" aria-live="polite" title="Status sinkronisasi Firebase Realtime Database" aria-label="Status sinkronisasi Firebase Realtime Database: Menghubungkan">
+          <span class="sync-dot" aria-hidden="true"></span><span id="firebaseStatusText" class="visually-hidden">Menghubungkan</span>
         </div>
-        <div class="topbar-actions">
-          <div class="sync-status" id="firebaseStatus" data-state="connecting" role="status" aria-live="polite" title="Status sinkronisasi Firebase Realtime Database">
-            <span class="sync-dot" aria-hidden="true"></span><span id="firebaseStatusText">Menghubungkan</span>
-          </div>
-          <button class="user-chip" id="signOutButton" type="button" title="Keluar dari akun" hidden>
-            <span id="authUserInitial">V</span><span id="authUserName">Akun</span><b>Keluar</b>
+        <div class="profile-menu-wrap">
+          <button aria-controls="profileMenuPanel" aria-expanded="false" class="user-chip profile-menu-button" id="profileMenuButton" type="button" title="Buka menu profil" hidden>
+            <span id="authUserInitial" class="user-avatar">V</span><span id="authUserName">Akun</span><b aria-hidden="true">⌄</b>
           </button>
-          <label class="top-date-control">
-            <span>TANGGAL OPERASIONAL</span>
-            <input id="operationDate" type="date" aria-label="Tanggal operasional" />
-          </label>
-          <button class="primary-button" id="primaryActionButton" type="button" aria-label="Tambah ploting baru"><b>＋</b> Tambah Ploting</button>
-        </div>
-      </header>
-
-      <section class="view active" data-view-panel="dashboard" id="dashboardView">
-
-        <div class="dashboard-hero dashboard-hero--upgrade">
-          <div class="hero-copy hero-greeting-block">
-            <p class="section-label hero-label" id="dashboardGreetingMeta">CONTROL CENTER</p>
-            <h3 id="dashboardGreetingTitle">Selamat datang.</h3>
-            <p class="hero-reminder-lead" id="dashboardReminderLead">Memuat pengingat operasional hari ini.</p>
-            <div class="hero-reminder-list" id="dashboardReminderList" aria-label="Pengingat operasional"></div>
-          </div>
-          <div class="hero-quick-steps" aria-label="Akses cepat dashboard">
-            <button class="hero-quick-step hero-quick-action" data-go-view="plotings" type="button">
-              <span class="hero-icon" aria-hidden="true">▤</span>
-              <span><strong>Master Ploting</strong><small>Kelola jadwal dan benefit</small></span>
-              <i aria-hidden="true">›</i>
-            </button>
-            <button class="hero-quick-step hero-quick-action" data-go-view="fulltimeline" type="button">
-              <span class="hero-icon" aria-hidden="true">▥</span>
-              <span><strong>Kalender Full</strong><small>Lihat timeline bulanan</small></span>
-              <i aria-hidden="true">›</i>
-            </button>
+          <div class="profile-menu-panel" hidden id="profileMenuPanel">
+            <div class="profile-menu-summary"><strong id="profileMenuRole">PIC</strong><span>Pengaturan akun</span></div>
+            <button id="openProfileButton" type="button"><span>Profil saya</span><small>Nama, foto, email, dan password</small></button>
+            <button hidden id="openAccountManagementButton" type="button"><span>Kelola akun</span><small>Tambah atau nonaktifkan karyawan</small></button>
+            <button class="profile-menu-signout" id="profileSignOutButton" type="button"><span>Keluar</span><small>Akhiri sesi akun ini</small></button>
           </div>
         </div>
-
-        <div class="kpi-grid" id="kpiGrid"></div>
-
-        <div class="dashboard-grid">
-          <article class="panel">
-            <div class="panel-heading">
-              <div><p class="section-label">PIVOT MASTER OTOMATIS</p><h3>Jadwal pada tanggal operasional</h3></div>
-              <button class="text-button" data-go-view="daily" type="button">Buka timeline →</button>
-            </div>
-            <div class="table-wrap compact-table-wrap">
-              <table class="compact-table">
-                <thead><tr><th>Unit</th><th>Program / Brand</th><th>Format</th><th>Spot</th><th>Status</th></tr></thead>
-                <tbody id="dashboardTodayBody"></tbody>
-              </table>
-            </div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-heading"><div><p class="section-label">PERLU DITINJAU</p><h3>Prioritas operasional</h3></div></div>
-            <div class="attention-list" id="attentionList"></div>
-          </article>
-        </div>
-
-        <div class="dashboard-grid lower-grid">
-          <article class="panel">
-            <div class="panel-heading"><div><p class="section-label">BATCH TERBARU</p><h3>Benefit yang terakhir diinput</h3></div><button class="text-button" data-go-view="batches" type="button">Lihat semua →</button></div>
-            <div class="batch-list" id="recentBatchList"></div>
-          </article>
-          <article class="panel">
-            <div class="panel-heading"><div><p class="section-label">MINGGU INI</p><h3>Penayangan minggu ini</h3></div></div>
-            <div class="upcoming-list" id="upcomingList"></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="plotings" id="plotingsView">
-        <div class="section-intro panel section-intro--actions">
-          <div class="section-intro-copy"><p class="section-label">2026 VA DIGITAL</p><h3>Master Ploting VA</h3><p>Satu tempat untuk semua jadwal tayang.</p></div>
-          <div class="section-action-group">
-            <button class="secondary-button" id="legacyImportButton" type="button">⇧ Import Data Lama</button>
-            <button class="secondary-button" id="exportPlotingsExcelButton" type="button">⇩ Export Excel</button>
-            <button class="primary-button" id="addPlotInlineButton" type="button">+ Tambah Ploting</button>
-          </div>
-        </div>
-        <div class="toolbar panel toolbar-plotings">
-          <div class="search-box"><span>⌕</span><input id="plotSearchInput" type="search" placeholder="Cari brand, PT, program, versi VA, atau sales..." /></div>
-          <select id="plotYearFilter" aria-label="Filter tahun penayangan"></select>
-          <select id="plotMonthFilter" aria-label="Filter bulan penayangan"></select>
-          <select id="plotUnitFilter" aria-label="Filter unit on air"></select>
-          <select id="plotGfxFilter" aria-label="Filter materi GFX"></select>
-          <select id="plotAiringFilter" aria-label="Filter status tayang"></select>
-          <button class="secondary-button" id="resetPlotFilterButton" type="button">Reset</button>
-        </div>
-        <article class="panel data-panel">
-          <div class="panel-heading data-heading"><div><p class="section-label">DETAIL PENAYANGAN</p><h3><span id="plotResultCount">0</span> jadwal ditampilkan</h3></div></div>
-          <div class="table-wrap data-table-wrap">
-            <table class="data-table plotings-table">
-              <thead><tr><th>Tanggal / Batch</th><th>PT / Brand</th><th>Sales</th><th>PIC Ploting</th><th>Unit / Program</th><th>Benefit VA</th><th>Spot</th><th>GFX</th><th>Tayang</th><th></th></tr></thead>
-              <tbody id="plotingsTableBody"></tbody>
-            </table>
-          </div>
-          <div class="table-pagination" id="plotPagination" aria-label="Navigasi halaman Master Ploting"></div>
-        </article>
-      </section>
-
-      <section class="view" data-view-panel="batches" id="batchesView">
-        <div class="section-intro panel section-intro--actions">
-          <div class="section-intro-copy"><p class="section-label">KELOLA BATCH</p><h3>Batch Ploting</h3><p>Lihat semua batch dan edit detail benefit beserta seluruh jadwal tayangnya.</p></div>
-          <div class="section-action-group">
-            <button class="primary-button" id="addBatchInlineButton" type="button">+ Tambah Batch</button>
-          </div>
-        </div>
-        <div class="toolbar panel toolbar-batches">
-          <div class="search-box"><span>⌕</span><input id="batchSearchInput" type="search" placeholder="Cari batch, brand, PT, program, unit, PIC, atau sales..." /></div>
-          <select id="batchYearFilter" aria-label="Filter tahun batch"></select>
-          <select id="batchMonthFilter" aria-label="Filter bulan batch"></select>
-          <select id="batchUnitFilter" aria-label="Filter unit batch"></select>
-          <button class="secondary-button" id="resetBatchFilterButton" type="button">Reset</button>
-        </div>
-        <article class="panel data-panel">
-          <div class="panel-heading data-heading"><div><p class="section-label">DAFTAR BATCH</p><h3><span id="batchResultCount">0</span> batch ditampilkan</h3></div></div>
-          <div class="table-wrap data-table-wrap">
-            <table class="data-table batch-table">
-              <thead><tr><th>Batch</th><th>PT / Brand</th><th>Unit / Program</th><th>PIC / Sales</th><th>Periode</th><th>Jadwal</th><th>Total Spot</th><th>Status</th><th></th></tr></thead>
-              <tbody id="batchTableBody"></tbody>
-            </table>
-          </div>
-          <div class="table-pagination" id="batchPagination" aria-label="Navigasi halaman Batch Ploting"></div>
-        </article>
-      </section>
-
-      <section class="view" data-view-panel="daily" id="dailyView">
-        <div class="section-intro panel timeline-header section-intro--single-control">
-          <div class="section-intro-copy"><p class="section-label">PIVOT MASTER</p><h3>Timeline Harian</h3><p>Jadwal pada tanggal yang dipilih.</p></div>
-          <label class="date-control">Tanggal timeline<input id="dailyDateInput" type="date" /></label>
-        </div>
-        <div class="daily-kpi-grid" id="dailyKpiGrid"></div>
-        <article class="panel timeline-panel">
-          <div class="panel-heading"><div><p class="section-label">JADWAL TAYANG</p><h3 id="dailyTimelineTitle">Timeline</h3></div><span class="muted-caption" id="dailyTimelineCaption"></span></div>
-          <div class="daily-timeline" id="dailyTimelineList"></div>
-        </article>
-        <article class="panel timeline-panel seven-day-panel">
-          <div class="panel-heading"><div><p class="section-label">PIVOT 7 HARI</p><h3>Penayangan berikutnya</h3></div></div>
-          <div class="seven-day-list" id="sevenDayList"></div>
-        </article>
-      </section>
-
-      <section class="view" data-view-panel="wagenerator" id="waGeneratorView">
-        <div class="section-intro panel wa-generator-header section-intro--single-control">
-          <div class="section-intro-copy">
-            <p class="section-label">SHARE OPERASIONAL</p>
-            <h3>Generator Pesan WhatsApp</h3>
-            <p>Pilih program pada tanggal operasional, lalu tempatkan setiap spot secara manual ke Segment 1 sampai Segment 5. Khusus MNCTV, seluruh program otomatis digabung menjadi satu chat.</p>
-          </div>
-          <div class="wa-generator-date"><span>TANGGAL PESAN</span><strong id="waGeneratorDateLabel">Mengikuti tanggal operasional</strong></div>
-        </div>
-
-        <div class="wa-generator-layout">
-          <aside class="panel wa-program-panel">
-            <div class="wa-panel-head">
-              <p class="section-label">PROGRAM HARI INI</p>
-              <h3>Pilih program</h3>
-            </div>
-            <div class="wa-program-list" id="waProgramList"></div>
-          </aside>
-
-          <section class="wa-generator-main">
-            <article class="panel wa-assignment-panel">
-              <div class="wa-panel-head wa-assignment-head">
-                <div>
-                  <p class="section-label">ATUR SEGMENT MANUAL</p>
-                  <h3 id="waSelectedProgramTitle">Pilih program</h3>
-                  <p id="waSelectedProgramMeta" class="wa-selected-program-meta"></p>
-                </div>
-                <button class="secondary-button" id="waResetSegmentsButton" type="button">Reset segment</button>
-              </div>
-              <p class="wa-assignment-hint" id="waAssignmentHint"></p>
-              <div class="wa-assignment-list" id="waSpotAssignmentList"></div>
-            </article>
-
-            <article class="panel wa-preview-panel">
-              <div class="wa-panel-head wa-preview-head">
-                <div><p class="section-label">PREVIEW PESAN</p><h3>Siap dibagikan ke WhatsApp</h3></div>
-                <div class="wa-preview-actions">
-                  <button class="secondary-button" id="waCopyButton" type="button" disabled>Salin teks</button>
-                  <button class="primary-button" id="waOpenButton" type="button" disabled>Buka WhatsApp</button>
-                </div>
-              </div>
-              <pre class="wa-message-preview" id="waMessagePreview" aria-live="polite"></pre>
-            </article>
-          </section>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="fulltimeline" id="fullTimelineView">
-        <div class="section-intro panel timeline-header section-intro--filters section-intro--full-timeline">
-          <div class="section-intro-copy"></div>
-          <div class="filter-panel" aria-label="Filter Kalender Timeline Full">
-            <div class="filter-panel-heading">
-              <span>Filter kalender</span>
-              <small>Atur periode dan cakupan tampilan</small>
-            </div>
-            <div class="brand-filter-controls full-timeline-controls">
-              <label>Tahun<select id="fullTimelineYearSelect"></select></label>
-              <label>Bulan<select id="fullTimelineMonthSelect"></select></label>
-              <label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
-              <label class="brand-search-filter">Brand
-                <input id="fullTimelineBrandSelect" class="brand-search-input" type="search" list="fullTimelineBrandOptions" autocomplete="off" placeholder="Cari atau pilih brand" aria-label="Cari atau pilih brand untuk Kalender Full" />
-                <datalist id="fullTimelineBrandOptions"></datalist>
-              </label>
-              <button class="secondary-button filter-reset-button" id="fullTimelineResetButton" type="button">Reset filter</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="full-timeline-kpis" id="fullTimelineKpis"></div>
-
-        <article class="panel full-timeline-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-label">JADWAL PENAYANGAN</p>
-              <h3 id="fullTimelineTitle">Kalender Timeline Full</h3>
-            </div>
-            <span class="muted-caption" id="fullTimelineCaption"></span>
-          </div>
-          <div class="full-calendar-scroll" aria-label="Kalender timeline penayangan bulanan">
-            <div class="full-calendar-weekdays" aria-hidden="true">
-              <span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span>
-            </div>
-            <div class="full-calendar-grid" id="fullTimelineCalendar"></div>
-          </div>
-        </article>
-
-        <article class="panel full-timeline-summary-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-label">RINGKASAN UNIT</p>
-              <h3>Spot dan brand per Unit On Air</h3>
-            </div>
-          </div>
-          <div class="full-unit-summary-grid" id="fullTimelineUnitSummary"></div>
-        </article>
-      </section>
-
-      <section class="view" data-view-panel="brand" id="brandView">
-        <div class="section-intro panel timeline-header section-intro--filters section-intro--brand">
-          <div class="section-intro-copy"></div>
-          <div class="filter-panel" aria-label="Filter Timeline Brand">
-            <div class="filter-panel-heading">
-              <span>Filter timeline</span>
-              <small>Pilih brand, periode, dan detail penayangan</small>
-            </div>
-            <div class="brand-filter-controls">
-              <label class="brand-search-filter">Brand
-                <input id="brandSelect" class="brand-search-input" type="search" list="brandSelectOptions" autocomplete="off" placeholder="Cari atau pilih brand" aria-label="Cari atau pilih brand untuk Timeline Brand" />
-                <datalist id="brandSelectOptions"></datalist>
-              </label>
-              <label>Tahun<select id="brandYearSelect"></select></label>
-              <label>Bulan<select id="brandMonthSelect"></select></label>
-              <label>Unit On Air<select id="brandUnitSelect"></select></label>
-              <label>Program<select id="brandProgramSelect"></select></label>
-              <label>Format VA<select id="brandFormatSelect"></select></label>
-              <button class="secondary-button filter-reset-button" id="brandFilterResetButton" type="button">Reset filter</button>
-            </div>
-          </div>
-        </div>
-        <div class="brand-stats" id="brandStats"></div>
-        <article class="panel calendar-panel">
-          <div class="panel-heading"><div><p class="section-label">KALENDER BRAND</p><h3 id="brandCalendarTitle">Timeline Brand</h3></div><span class="muted-caption">Klik jadwal untuk mengedit batch benefit.</span></div>
-          <div class="calendar-scroll">
-            <div class="calendar-weekdays"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
-            <div class="brand-calendar" id="brandCalendar"></div>
-          </div>
-        </article>
-        <article class="panel brand-detail-panel">
-          <div class="panel-heading brand-detail-heading">
-            <div><p class="section-label">DETAIL BRAND</p><h3>Jadwal pada periode terpilih</h3></div>
-            <button class="secondary-button brand-snapshot-button" id="snapshotBrandDetailButton" type="button" disabled title="Salin seluruh tabel sebagai gambar untuk ditempel ke WhatsApp">▣ Copy Snapshot</button>
-          </div>
-          <div class="table-wrap compact-table-wrap"><table class="data-table brand-detail-table" id="brandDetailTable"><thead><tr><th>Tanggal</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>GFX</th><th>Status</th><th>Note Tambahan</th><th></th></tr></thead><tbody id="brandDetailBody"></tbody><tfoot><tr class="brand-total-row"><td colspan="3"><strong>Total Spot</strong><span>Akumulasi periode terpilih</span></td><td id="brandTotalSpot">0</td><td colspan="4"></td></tr></tfoot></table></div>
-        </article>
-      </section>
-
-
-      <section class="view" data-view-panel="picreport" id="picReportView">
-        <div class="section-intro panel timeline-header section-intro--filters section-intro--pic-report">
-          <div class="section-intro-copy"><p class="section-label">MONITORING PIC</p><h3>Report per PIC</h3><p>Lihat beban kerja setiap PIC.</p></div>
-          <div class="report-header-actions">
-            <div class="brand-filter-controls">
-              <label>PIC Ploting<select id="picReportSelect"></select></label>
-              <label>Tahun<select id="picReportYearSelect"></select></label>
-              <label>Kuartal<select id="picReportQuarterSelect"></select></label>
-            </div>
-            <button class="secondary-button" id="exportPicExcelButton" type="button">⇩ Export Excel</button>
-          </div>
-        </div>
-        <div class="pic-report-kpis" id="picReportKpis"></div>
-        <div class="pic-report-layout">
-          <article class="panel pic-overview-panel">
-            <div class="panel-heading"><div><p class="section-label">RINGKASAN TIM</p><h3>Capaian spot per PIC</h3></div><span class="muted-caption" id="picOverviewCaption"></span></div>
-            <div class="table-wrap compact-table-wrap">
-              <table class="data-table pic-overview-table">
-                <thead><tr><th>PIC</th><th>Spot Tayang</th><th>Jadwal</th><th>Total Spot</th><th>Brand</th><th>Program</th><th></th></tr></thead>
-                <tbody id="picOverviewBody"></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="panel pic-scope-panel">
-            <div class="panel-heading"><div><p class="section-label">CAKUPAN PIC</p><h3 id="picScopeTitle">Brand dan program</h3></div></div>
-            <div class="pic-scope-list" id="picScopeList"></div>
-          </article>
-        </div>
-        <article class="panel data-panel pic-detail-panel">
-          <div class="panel-heading data-heading"><div><p class="section-label">DETAIL PLOTING</p><h3 id="picDetailTitle">Jadwal PIC</h3></div><p class="muted-caption" id="picDetailCaption"></p></div>
-          <div class="table-wrap data-table-wrap">
-            <table class="data-table pic-detail-table">
-              <thead><tr><th>Tanggal</th><th>Batch</th><th>PT / Brand</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>Status</th><th></th></tr></thead>
-              <tbody id="picDetailBody"></tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-
-      <section class="view" data-view-panel="masters" id="mastersView">
-        <div class="section-intro panel section-intro--static">
-          <div class="section-intro-copy"><p class="section-label">DATABASE PILIHAN</p><h3>Master Data</h3><p>Kelola semua pilihan dropdown untuk form ploting.</p></div>
-        </div>
-        <div class="master-layout">
-          <article class="panel master-add-panel">
-            <p class="section-label">TAMBAH PILIHAN</p>
-            <h3>Tambah data master</h3>
-            <form id="masterForm" class="master-form">
-              <label>Jenis data<select id="masterTypeInput" required>
-                <option value="advertisers">PT Advertiser</option>
-                <option value="pods">POD</option>
-                <option value="units">Unit On Air</option>
-                <option value="formats">Format VA</option>
-                <option value="durations">Durasi</option>
-                <option value="gfx">Materi GFX</option>
-                <option value="pics">PIC Ploting</option>
-              </select></label>
-              <label>Nilai baru<input id="masterValueInput" maxlength="100" required placeholder="Contoh: POD 8" /></label>
-              <button class="primary-button" type="submit">+ Simpan ke Master</button>
-            </form>
-            <p class="master-hint">Data yang sudah dipakai tidak dapat dihapus.</p>
-          </article>
-          <article class="panel master-summary-panel">
-            <p class="section-label">RINGKASAN</p>
-            <h3>Jumlah data aktif</h3>
-            <div class="master-summary" id="masterSummary"></div>
-          </article>
-        </div>
-        <div class="master-grid" id="masterGrid"></div>
-      </section>
-
-      <section class="view" data-view-panel="guide" id="guideView">
-        <article class="panel guide-card">
-          <p class="section-label">WORKFLOW OPERASIONAL</p>
-          <h3>Alur kerja ploting benefit</h3>
-          <div class="guide-flow guide-flow--six">
-            <div><span>01</span><h4>Siapkan Master Data</h4><p>Kelola PT Advertiser, POD, Unit On Air, Format VA, Durasi, Materi GFX, dan PIC sebelum membuat ploting.</p></div>
-            <div><span>02</span><h4>Buat Batch Ploting</h4><p>Input detail benefit sekali untuk brand, program, unit, format, durasi, PIC, dan informasi campaign yang sama.</p></div>
-            <div><span>03</span><h4>Atur Jadwal Tayang</h4><p>Tambahkan setiap tanggal beserta spot, status tayang, dan note tambahan. Spot dapat bernilai 0.</p></div>
-            <div><span>04</span><h4>Kelola Perubahan</h4><p>Ubah status per jadwal. Saat tidak tayang, spot dapat digeser ke tanggal baru dalam batch yang sama. Jadwal salah dapat dihapus.</p></div>
-            <div><span>05</span><h4>Monitor Timeline</h4><p>Pantau jadwal melalui Timeline Harian, Kalender Full, dan Timeline Brand berdasarkan bulan, unit, atau brand.</p></div>
-            <div><span>06</span><h4>Review PIC dan Export</h4><p>Gunakan Report PIC untuk melihat beban kerja. Master Ploting dan Report PIC dapat diexport ke Excel.</p></div>
-          </div>
-          <div class="rule-box"><strong>Sumber data utama:</strong> semua perubahan dibuat di Master Ploting VA. Timeline, total spot, dan Report PIC diperbarui otomatis.</div>
-        </article>
-      </section>
-    </main>
-  </div>
-
-  <section class="modal-backdrop" id="plotModalBackdrop" aria-hidden="true">
-    <form class="modal" id="plotForm" novalidate>
-      <div class="modal-header">
-        <div><p class="section-label">MASTER PLOTING VA</p><h3 id="plotModalTitle">Tambah Ploting Benefit</h3></div>
-        <button class="icon-button close-modal" data-close-modal type="button" aria-label="Tutup">×</button>
-      </div>
-      <input id="plotBatchIdInput" type="hidden" />
-
-      <div class="form-section">
-        <div class="form-section-title"><span>1</span><div><strong>Informasi benefit</strong><small>Isi detail utama.</small></div></div>
-        <div class="form-grid form-grid-3">
-          <label>PT Advertiser<select id="plotAdvertiserInput" required></select></label>
-          <label>Brand<input id="plotBrandInput" maxlength="100" required placeholder="Contoh: Lifebuoy" /></label>
-          <label>Nama Sales<input id="plotSalesInput" maxlength="80" required placeholder="Contoh: Vey" /></label>
-          <label>PIC Ploting<select id="plotPicInput" required></select></label>
-          <label>Unit On Air<select id="plotUnitInput" required></select></label>
-          <label>Program<input id="plotProgramInput" maxlength="100" required placeholder="Contoh: Dahsyat" /></label>
-          <label>POD<select id="plotPodInput" required></select></label>
-          <label>Versi VA<input id="plotVersionInput" maxlength="140" required placeholder="Nama atau versi materi VA" /></label>
-          <label>Format VA<select id="plotFormatInput" required></select></label>
-          <label>Durasi<select id="plotDurationInput" required></select></label>
-          <label>Materi GFX<select id="plotGfxInput" required></select></label>
-          <label>Segmentasi<input id="plotSegmentationInput" maxlength="80" placeholder="Contoh: Prime time" /></label>
-          <label class="full-width">Catatan benefit (opsional)<textarea id="plotBatchNoteInput" rows="3" maxlength="400" placeholder="Catatan yang berlaku untuk seluruh benefit dalam batch ini."></textarea></label>
-        </div>
-      </div>
-
-      <div class="form-section schedule-section">
-        <div class="form-section-title"><span>2</span><div><strong>Jadwal tayang</strong><small>Pilih beberapa tanggal lewat kalender atau tambah satu jadwal secara manual. Spot dapat bernilai 0.</small></div></div>
-        <section class="multi-date-picker-shell" aria-labelledby="multiDatePickerLabel">
-          <div class="multi-date-picker-toolbar">
-            <div>
-              <strong id="multiDatePickerLabel">Pilih banyak tanggal sekaligus</strong>
-              <small>Centang beberapa tanggal dalam satu kalender. Tanggal yang dipilih langsung dibuat sebagai jadwal baru.</small>
-            </div>
-            <button class="secondary-button" id="multiDatePickerToggle" type="button" aria-expanded="false" aria-controls="multiDatePicker">▦ Pilih beberapa tanggal</button>
-          </div>
-          <div class="multi-date-picker" id="multiDatePicker" hidden></div>
-        </section>
-        <div class="schedule-table-wrap">
-          <table class="schedule-table">
-            <thead><tr><th>Tanggal tayang</th><th>Jumlah spot</th><th>Status tayang</th><th>Note tambahan</th><th></th></tr></thead>
-            <tbody id="scheduleRows"></tbody>
-          </table>
-        </div>
-        <button class="secondary-button add-schedule-button" id="addScheduleButton" type="button">+ Tambah tanggal tayang</button>
-        <p class="date-help">Minimal satu jadwal. Status dan note disimpan per tanggal, jadi perubahan satu jadwal tidak memengaruhi tanggal lain.</p>
-      </div>
-      <div class="modal-actions"><button class="secondary-button" data-close-modal type="button">Batal</button><button class="primary-button" type="submit">Simpan Ploting</button></div>
-    </form>
-  </section>
-
-
-
-  <section class="modal-backdrop" id="scheduleModalBackdrop" aria-hidden="true">
-    <form class="modal schedule-edit-modal" id="scheduleEditForm" novalidate>
-      <div class="modal-header">
-        <div><p class="section-label">UPDATE PER JADWAL</p><h3>Atur Jadwal Tayang</h3></div>
-        <button class="icon-button close-modal" data-close-schedule-modal type="button" aria-label="Tutup">×</button>
-      </div>
-      <input id="scheduleEditIdInput" type="hidden" />
-      <div class="schedule-edit-context" id="scheduleEditContext"></div>
-      <div class="form-grid schedule-edit-grid">
-        <label>Tanggal tayang<input id="scheduleEditDateInput" type="date" required /></label>
-        <label>Jumlah spot<input id="scheduleEditSpotInput" type="number" min="0" max="999" step="1" required /></label>
-        <label class="full-width">Status tayang<select id="scheduleEditStatusInput" required></select></label>
-        <label class="full-width">Note tambahan per jadwal<textarea id="scheduleEditNoteInput" rows="4" maxlength="220" placeholder="Contoh: Tidak tayang karena perubahan program."></textarea></label>
-      </div>
-
-      <section class="schedule-slide-panel" id="scheduleSlidePanel" hidden aria-live="polite">
-        <div class="schedule-slide-head">
-          <div>
-            <p class="section-label">SLIDING SPOT</p>
-            <h4>Geser spot ke jadwal baru</h4>
-            <p>Gunakan saat jadwal ini tidak tayang. Jadwal asal akan menjadi 0 spot, lalu jadwal baru masuk ke batch yang sama.</p>
-          </div>
-          <label class="slide-toggle">
-            <input id="scheduleSlideToggle" type="checkbox" />
-            <span>Geser spot</span>
-          </label>
-        </div>
-        <div class="schedule-slide-fields" id="scheduleSlideFields" hidden>
-          <label>Tanggal tayang pengganti<input id="scheduleSlideDateInput" type="date" /></label>
-          <div class="slide-spot-preview">
-            <span>Spot yang dipindahkan</span>
-            <strong id="scheduleSlideSpotPreview">0 spot</strong>
-            <small>Jadwal baru dibuat dengan status Planned.</small>
-          </div>
-        </div>
-      </section>
-
-      <div class="modal-actions schedule-modal-actions"><button class="danger-button" data-delete-schedule type="button">Hapus Jadwal</button><span class="modal-actions-spacer"></span><button class="secondary-button" data-close-schedule-modal type="button">Batal</button><button class="primary-button" type="submit">Simpan Perubahan</button></div>
-    </form>
-  </section>
-
-  <section class="modal-backdrop" id="legacyImportModalBackdrop" aria-hidden="true">
-    <div class="modal legacy-import-modal" role="dialog" aria-modal="true" aria-labelledby="legacyImportTitle">
-      <div class="modal-header">
-        <div><p class="section-label">MIGRASI DATA</p><h3 id="legacyImportTitle">Import Data Lama</h3></div>
-        <button class="icon-button close-modal" data-close-legacy-import type="button" aria-label="Tutup">×</button>
-      </div>
-
-      <div class="legacy-import-info">
-        <strong>Gunakan untuk mengimpor file 2026 VA yang sudah berjalan.</strong>
-        <p>File dibaca di browser, lalu jadwal yang valid disimpan ke Firebase Realtime Database. Data yang sudah ada tidak dihapus. Jadwal Juli 2026 otomatis dilewati karena sudah tersedia di aplikasi.</p>
-      </div>
-
-      <div class="legacy-import-form-grid">
-        <label class="legacy-upload-field">
-          <span>File Excel (.xlsx / .xls)</span>
-          <input id="legacyImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
-          <small id="legacyImportFileName">Belum ada file dipilih</small>
+        <label class="top-date-control">
+          <span>Tanggal operasional</span>
+          <input id="operationDate" type="date" aria-label="Tanggal operasional" />
         </label>
-        <label>PIC default untuk data lama<select id="legacyImportPicInput"></select><small>Sumber Excel tidak memiliki kolom PIC ploting.</small></label>
-        <label>Status jadwal sebelum hari ini<select id="legacyImportPastStatusInput"></select><small>Spot 0 tetap otomatis menjadi Tidak tayang.</small></label>
-        <label>Status jadwal hari ini / mendatang<select id="legacyImportFutureStatusInput"></select></label>
-      </div>
-
-      <p class="legacy-import-error" id="legacyImportError" hidden></p>
-      <section class="legacy-import-preview" id="legacyImportPreview" hidden>
-        <div class="legacy-preview-head"><div><p class="section-label">RINGKASAN IMPORT</p><h4>Data siap ditinjau</h4></div><span id="legacyImportRange"></span></div>
-        <div class="legacy-import-summary" id="legacyImportSummary"></div>
-        <div class="legacy-import-warnings"><strong>Catatan konversi</strong><ul id="legacyImportWarnings"></ul></div>
-      </section>
-
-      <div class="modal-actions legacy-import-actions">
-        <button class="secondary-button" data-close-legacy-import type="button">Batal</button>
-        <button class="primary-button" id="legacyImportConfirmButton" type="button" disabled>Import ke Realtime Database</button>
+        <button class="primary-button" id="primaryActionButton" type="button" aria-label="Tambah ploting baru"><b>＋</b> Tambah ploting</button>
       </div>
     </div>
-  </section>
+  </header>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="update-check.js?v=55" defer></script>
-  <script type="module" src="app.js?v=71"></script>
+<main class="main-content">
+<header class="topbar page-topbar">
+<div class="page-heading">
+<p class="eyebrow" id="pageEyebrow">OPERATIONS DASHBOARD</p>
+<h2 id="pageTitle">VA Benefit Ploting</h2>
+</div>
+
+</header>
+<section class="view active" data-view-panel="dashboard" id="dashboardView">
+<div class="dashboard-hero dashboard-hero--upgrade">
+<video class="dashboard-hero-video" src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260714_113715_c7e0daa0-8bdd-4486-a2da-040901f8f0ea.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+<div class="dashboard-hero-scrim" aria-hidden="true"></div>
+<div class="hero-copy hero-greeting-block">
+<div class="hero-funding-badge"><span aria-hidden="true">VA</span><strong>Digital Ploting Workspace</strong></div>
+<p class="section-label hero-label" id="dashboardGreetingMeta">Tanggal operasional</p>
+<h3 id="dashboardGreetingTitle">Selamat datang.</h3>
+<p class="hero-reminder-lead" id="dashboardReminderLead">Memuat ringkasan operasional hari ini.</p>
+</div>
+<div aria-label="Akses cepat dashboard" class="hero-quick-steps">
+<button class="hero-quick-step hero-quick-action hero-quick-primary" data-go-view="daily" type="button">
+<span aria-hidden="true" class="hero-icon">▤</span>
+<span><strong>Lihat jadwal hari ini →</strong><small>Timeline tanggal operasional</small></span>
+<i aria-hidden="true">›</i>
+</button>
+<button class="hero-quick-step hero-quick-action hero-quick-secondary" data-go-view="plotings" type="button">
+<span aria-hidden="true" class="hero-icon">▥</span>
+<span><strong>Buka master ploting</strong><small>Kelola jadwal dan benefit</small></span>
+<i aria-hidden="true">›</i>
+</button>
+</div>
+<div aria-label="Pengingat operasional" class="hero-reminder-list" id="dashboardReminderList"></div>
+</div>
+<div class="kpi-grid" id="kpiGrid"></div>
+<div class="dashboard-grid">
+<article class="panel">
+<div class="panel-heading">
+<div><p class="section-label">PIVOT MASTER OTOMATIS</p><h3>Jadwal pada tanggal operasional</h3></div>
+<button class="text-button" data-go-view="daily" type="button">Buka timeline →</button>
+</div>
+<div class="table-wrap compact-table-wrap">
+<table class="compact-table dashboard-today-table">
+<thead><tr><th>Unit</th><th>Program / Brand</th><th>Format</th><th>Spot</th><th>Status</th></tr></thead>
+<tbody id="dashboardTodayBody"></tbody>
+</table>
+</div>
+</article>
+<article class="panel">
+<div class="panel-heading"><div><p class="section-label">PERLU DITINJAU</p><h3>Prioritas operasional</h3></div></div>
+<div class="attention-list" id="attentionList"></div>
+</article>
+</div>
+<div class="dashboard-grid lower-grid">
+<article class="panel">
+<div class="panel-heading"><div><p class="section-label">BATCH TERBARU</p><h3>Benefit yang terakhir diinput</h3></div><button class="text-button" data-go-view="batches" type="button">Lihat semua →</button></div>
+<div class="batch-list" id="recentBatchList"></div>
+</article>
+<article class="panel">
+<div class="panel-heading"><div><p class="section-label">MINGGU INI</p><h3>Penayangan minggu ini</h3></div></div>
+<div class="upcoming-list" id="upcomingList"></div>
+</article>
+</div>
+</section>
+<section class="view" data-view-panel="plotings" id="plotingsView">
+<div class="section-intro panel section-intro--actions">
+<div class="section-intro-copy"><p class="section-label">2026 VA DIGITAL</p><h3>Master Ploting VA</h3><p>Satu tempat untuk semua jadwal tayang.</p></div>
+<div class="section-action-group">
+<button class="secondary-button" id="legacyImportButton" type="button">⇧ Import Data Lama</button>
+<button class="secondary-button" id="exportPlotingsExcelButton" type="button">⇩ Export Excel</button>
+<button class="primary-button" id="addPlotInlineButton" type="button">+ Tambah ploting</button>
+</div>
+</div>
+<div class="toolbar panel toolbar-plotings">
+<div class="search-box"><span>⌕</span><input id="plotSearchInput" placeholder="Cari brand, PT, program, versi VA, atau sales..." type="search"/></div>
+<select aria-label="Filter tahun penayangan" id="plotYearFilter"></select>
+<select aria-label="Filter bulan penayangan" id="plotMonthFilter"></select>
+<select aria-label="Filter unit on air" id="plotUnitFilter"></select>
+<select aria-label="Filter materi GFX" id="plotGfxFilter"></select>
+<select aria-label="Filter status tayang" id="plotAiringFilter"></select>
+<button class="secondary-button" id="resetPlotFilterButton" type="button">Reset</button>
+</div>
+<article class="panel data-panel">
+<div class="panel-heading data-heading"><div><p class="section-label">DETAIL PENAYANGAN</p><h3><span id="plotResultCount">0</span> jadwal ditampilkan</h3></div></div>
+<div class="table-wrap data-table-wrap">
+<table class="data-table plotings-table">
+<thead><tr><th>Tanggal / Batch</th><th>PT / Brand</th><th>Sales</th><th>PIC Ploting</th><th>Unit / Program</th><th>Benefit VA</th><th>Spot</th><th>GFX</th><th>Tayang</th><th></th></tr></thead>
+<tbody id="plotingsTableBody"></tbody>
+</table>
+</div>
+<div aria-label="Navigasi halaman Master Ploting" class="table-pagination" id="plotPagination"></div>
+</article>
+</section>
+<section class="view" data-view-panel="batches" id="batchesView">
+<div class="section-intro panel section-intro--actions">
+<div class="section-intro-copy"><p class="section-label">KELOLA BATCH</p><h3>Batch Ploting</h3><p>Lihat semua batch dan edit detail benefit beserta seluruh jadwal tayangnya.</p></div>
+<div class="section-action-group">
+<button class="primary-button" id="addBatchInlineButton" type="button">+ Tambah Batch</button>
+</div>
+</div>
+<div class="toolbar panel toolbar-batches">
+<div class="search-box"><span>⌕</span><input id="batchSearchInput" placeholder="Cari batch, brand, PT, program, unit, PIC, atau sales..." type="search"/></div>
+<select aria-label="Filter tahun batch" id="batchYearFilter"></select>
+<select aria-label="Filter bulan batch" id="batchMonthFilter"></select>
+<select aria-label="Filter unit batch" id="batchUnitFilter"></select>
+<button class="secondary-button" id="resetBatchFilterButton" type="button">Reset</button>
+</div>
+<article class="panel data-panel">
+<div class="panel-heading data-heading"><div><p class="section-label">DAFTAR BATCH</p><h3><span id="batchResultCount">0</span> batch ditampilkan</h3></div></div>
+<div class="table-wrap data-table-wrap">
+<table class="data-table batch-table">
+<thead><tr><th>Batch</th><th>PT / Brand</th><th>Unit / Program</th><th>PIC / Sales</th><th>Benefit VA</th><th>Jadwal</th><th>Total Spot</th><th>Status</th><th></th></tr></thead>
+<tbody id="batchTableBody"></tbody>
+</table>
+</div>
+<div aria-label="Navigasi halaman Batch Ploting" class="table-pagination" id="batchPagination"></div>
+</article>
+</section>
+<section class="view" data-view-panel="daily" id="dailyView">
+<div class="section-intro panel timeline-header section-intro--single-control">
+<div class="section-intro-copy"><p class="section-label">PIVOT MASTER</p><h3>Timeline Harian</h3><p>Jadwal pada tanggal yang dipilih.</p></div>
+<label class="date-control">Tanggal timeline<input id="dailyDateInput" type="date"/></label>
+</div>
+<div class="daily-kpi-grid" id="dailyKpiGrid"></div>
+<article class="panel timeline-panel">
+<div class="panel-heading"><div><p class="section-label">JADWAL TAYANG</p><h3 id="dailyTimelineTitle">Timeline</h3></div><span class="muted-caption" id="dailyTimelineCaption"></span></div>
+<div class="daily-timeline" id="dailyTimelineList"></div>
+</article>
+<article class="panel timeline-panel seven-day-panel">
+<div class="panel-heading"><div><p class="section-label">PIVOT 7 HARI</p><h3>Penayangan berikutnya</h3></div></div>
+<div class="seven-day-list" id="sevenDayList"></div>
+</article>
+</section>
+<section class="view" data-view-panel="wagenerator" id="waGeneratorView">
+<div class="section-intro panel wa-generator-header section-intro--single-control">
+<div class="section-intro-copy">
+<p class="section-label">SHARE OPERASIONAL</p>
+<h3>Generator Pesan WhatsApp</h3>
+<p>Pilih program pada tanggal operasional, lalu tempatkan setiap spot secara manual ke Segment 1 sampai Segment 5. Khusus MNCTV, seluruh program otomatis digabung menjadi satu chat.</p>
+</div>
+<div class="wa-generator-date"><span>TANGGAL PESAN</span><strong id="waGeneratorDateLabel">Mengikuti tanggal operasional</strong></div>
+</div>
+<div class="wa-generator-layout">
+<aside class="panel wa-program-panel">
+<div class="wa-panel-head">
+<p class="section-label">PROGRAM HARI INI</p>
+<h3>Pilih program</h3>
+</div>
+<div class="wa-program-list" id="waProgramList"></div>
+</aside>
+<section class="wa-generator-main">
+<article class="panel wa-assignment-panel">
+<div class="wa-panel-head wa-assignment-head">
+<div>
+<p class="section-label">ATUR SEGMENT MANUAL</p>
+<h3 id="waSelectedProgramTitle">Pilih program</h3>
+<p class="wa-selected-program-meta" id="waSelectedProgramMeta"></p>
+</div>
+<button class="secondary-button" id="waResetSegmentsButton" type="button">Reset segment</button>
+</div>
+<p class="wa-assignment-hint" id="waAssignmentHint"></p>
+<div class="wa-assignment-list" id="waSpotAssignmentList"></div>
+</article>
+<article class="panel wa-preview-panel">
+<div class="wa-panel-head wa-preview-head">
+<div><p class="section-label">PREVIEW PESAN</p><h3>Siap dibagikan ke WhatsApp</h3></div>
+<div class="wa-preview-actions">
+<button class="secondary-button" disabled="" id="waCopyButton" type="button">Salin teks</button>
+<button class="primary-button" disabled="" id="waOpenButton" type="button">Buka WhatsApp</button>
+</div>
+</div>
+<pre aria-live="polite" class="wa-message-preview" id="waMessagePreview"></pre>
+</article>
+</section>
+</div>
+</section>
+<section class="view" data-view-panel="fulltimeline" id="fullTimelineView">
+<div class="section-intro panel timeline-header section-intro--filters section-intro--full-timeline">
+<div class="section-intro-copy"></div>
+<div aria-label="Filter Kalender Timeline Full" class="filter-panel">
+<div class="filter-panel-heading">
+<span>Filter kalender</span>
+<small>Atur periode dan cakupan tampilan</small>
+</div>
+<div class="brand-filter-controls full-timeline-controls">
+<label>Tahun<select id="fullTimelineYearSelect"></select></label>
+<label>Bulan<select id="fullTimelineMonthSelect"></select></label>
+<label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
+<label class="brand-search-filter">Brand
+                <input aria-label="Cari atau pilih brand untuk Kalender Full" autocomplete="off" class="brand-search-input" id="fullTimelineBrandSelect" list="fullTimelineBrandOptions" placeholder="Cari atau pilih brand" type="search"/>
+<datalist id="fullTimelineBrandOptions"></datalist>
+</label>
+<button class="secondary-button filter-reset-button" id="fullTimelineResetButton" type="button">Reset filter</button>
+</div>
+</div>
+</div>
+<div class="full-timeline-kpis" id="fullTimelineKpis"></div>
+<article class="panel full-timeline-panel">
+<div class="panel-heading">
+<div>
+<p class="section-label">JADWAL PENAYANGAN</p>
+<h3 id="fullTimelineTitle">Kalender Timeline Full</h3>
+</div>
+<span class="muted-caption" id="fullTimelineCaption"></span>
+</div>
+<div aria-label="Kalender timeline penayangan bulanan" class="full-calendar-scroll">
+<div aria-hidden="true" class="full-calendar-weekdays">
+<span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span>
+</div>
+<div class="full-calendar-grid" id="fullTimelineCalendar"></div>
+</div>
+</article>
+<article class="panel full-timeline-summary-panel">
+<div class="panel-heading">
+<div>
+<p class="section-label">RINGKASAN UNIT</p>
+<h3>Spot dan brand per Unit On Air</h3>
+</div>
+</div>
+<div class="full-unit-summary-grid" id="fullTimelineUnitSummary"></div>
+</article>
+</section>
+<section class="view" data-view-panel="brand" id="brandView">
+<div class="section-intro panel timeline-header section-intro--filters section-intro--brand">
+<div class="section-intro-copy"></div>
+<div aria-label="Filter Timeline Brand" class="filter-panel">
+<div class="filter-panel-heading">
+<span>Filter timeline</span>
+<small>Pilih brand, periode, dan detail penayangan</small>
+</div>
+<div class="brand-filter-controls">
+<label class="brand-search-filter">Brand
+                <input aria-label="Cari atau pilih brand untuk Timeline Brand" autocomplete="off" class="brand-search-input" id="brandSelect" list="brandSelectOptions" placeholder="Cari atau pilih brand" type="search"/>
+<datalist id="brandSelectOptions"></datalist>
+</label>
+<label>Tahun<select id="brandYearSelect"></select></label>
+<label>Bulan<select id="brandMonthSelect"></select></label>
+<label>Unit On Air<select id="brandUnitSelect"></select></label>
+<label>Program<select id="brandProgramSelect"></select></label>
+<label>Format VA<select id="brandFormatSelect"></select></label>
+<button class="secondary-button filter-reset-button" id="brandFilterResetButton" type="button">Reset filter</button>
+</div>
+</div>
+</div>
+<div class="brand-stats" id="brandStats"></div>
+<article class="panel calendar-panel">
+<div class="panel-heading"><div><p class="section-label">KALENDER BRAND</p><h3 id="brandCalendarTitle">Timeline Brand</h3></div><span class="muted-caption">Klik jadwal untuk mengedit batch benefit.</span></div>
+<div class="calendar-scroll">
+<div class="calendar-weekdays"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+<div class="brand-calendar" id="brandCalendar"></div>
+</div>
+</article>
+<article class="panel brand-detail-panel">
+<div class="panel-heading brand-detail-heading">
+<div><p class="section-label">DETAIL BRAND</p><h3>Jadwal pada periode terpilih</h3></div>
+<button class="secondary-button brand-snapshot-button" disabled="" id="snapshotBrandDetailButton" title="Salin seluruh tabel sebagai gambar untuk ditempel ke WhatsApp" type="button">▣ Copy Snapshot</button>
+</div>
+<div class="table-wrap compact-table-wrap"><table class="data-table brand-detail-table" id="brandDetailTable">
+<caption class="brand-detail-title" id="brandDetailSnapshotTitle">Benefit Virtual Ads</caption>
+<colgroup>
+<col class="brand-detail-col-date"/>
+<col class="brand-detail-col-unit"/>
+<col class="brand-detail-col-format"/>
+<col class="brand-detail-col-spot"/>
+<col class="brand-detail-col-gfx"/>
+<col class="brand-detail-col-status"/>
+<col class="brand-detail-col-note"/>
+<col class="brand-detail-col-action"/>
+</colgroup>
+<thead><tr><th>Tanggal</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>GFX</th><th>Status</th><th>Note Tambahan</th><th></th></tr></thead><tbody id="brandDetailBody"></tbody><tfoot><tr class="brand-total-row"><td colspan="3"><strong>Total Spot</strong></td><td id="brandTotalSpot">0 spot</td><td colspan="4"></td></tr></tfoot></table></div>
+</article>
+</section>
+<section class="view" data-view-panel="picreport" id="picReportView">
+<div class="section-intro panel timeline-header section-intro--filters section-intro--pic-report">
+<div class="section-intro-copy"><p class="section-label">MONITORING PIC</p><h3>Report per PIC</h3><p>Lihat beban kerja setiap PIC.</p></div>
+<div class="report-header-actions">
+<div class="brand-filter-controls">
+<label>PIC Ploting<select id="picReportSelect"></select></label>
+<label>Tahun<select id="picReportYearSelect"></select></label>
+<label>Kuartal<select id="picReportQuarterSelect"></select></label>
+</div>
+<button class="secondary-button" id="exportPicExcelButton" type="button">⇩ Export Excel</button>
+</div>
+</div>
+<div class="pic-report-kpis" id="picReportKpis"></div>
+<div class="pic-report-layout">
+<button class="mobile-report-section-toggle is-open" data-mobile-report-toggle="overview" type="button" aria-expanded="true"><span><strong>Ringkasan per PIC</strong><small>Lihat capaian tim pada periode terpilih</small></span><b aria-hidden="true">⌄</b></button>
+<div class="mobile-report-section is-open" data-mobile-report-section="overview">
+<article class="panel pic-overview-panel">
+<div class="panel-heading"><div><p class="section-label">RINGKASAN TIM</p><h3>Capaian spot per PIC</h3></div><span class="muted-caption" id="picOverviewCaption"></span></div>
+<div class="table-wrap compact-table-wrap">
+<table class="data-table pic-overview-table">
+<thead><tr><th>PIC</th><th>Spot Tayang</th><th>Jadwal</th><th>Total Spot</th><th>Brand</th><th>Program</th><th></th></tr></thead>
+<tbody id="picOverviewBody"></tbody>
+</table>
+</div>
+</article>
+</div>
+<button class="mobile-report-section-toggle" data-mobile-report-toggle="scope" type="button" aria-expanded="false"><span><strong>Cakupan PIC</strong><small>Brand, program, dan unit teratas</small></span><b aria-hidden="true">⌄</b></button>
+<div class="mobile-report-section" data-mobile-report-section="scope">
+<article class="panel pic-scope-panel">
+<div class="panel-heading"><div><p class="section-label">CAKUPAN PIC</p><h3 id="picScopeTitle">Brand dan program</h3></div></div>
+<div class="pic-scope-list" id="picScopeList"></div>
+</article>
+</div>
+</div>
+<button class="mobile-report-section-toggle" data-mobile-report-toggle="detail" type="button" aria-expanded="false"><span><strong>Detail jadwal</strong><small id="mobilePicDetailToggleCaption">Buka daftar ploting</small></span><b aria-hidden="true">⌄</b></button>
+<div class="mobile-report-section" data-mobile-report-section="detail">
+<article class="panel data-panel pic-detail-panel">
+<div class="panel-heading data-heading"><div><p class="section-label">DETAIL PLOTING</p><h3 id="picDetailTitle">Jadwal PIC</h3></div><p class="muted-caption" id="picDetailCaption"></p></div>
+<div class="table-wrap data-table-wrap">
+<table class="data-table pic-detail-table">
+<thead><tr><th>Tanggal</th><th>Batch</th><th>PT / Brand</th><th>Unit / Program</th><th>Format VA</th><th>Spot</th><th>Status</th><th></th></tr></thead>
+<tbody id="picDetailBody"></tbody>
+</table>
+</div>
+<div class="mobile-report-more" id="mobilePicDetailMore"></div>
+</article>
+</div>
+</section>
+<section class="view" data-view-panel="masters" id="mastersView">
+<div class="section-intro panel section-intro--static">
+<div class="section-intro-copy"><p class="section-label">DATABASE PILIHAN</p><h3>Master Data</h3><p>Kelola semua pilihan dropdown untuk form ploting.</p></div>
+</div>
+<div class="master-layout">
+<article class="panel master-add-panel">
+<p class="section-label">TAMBAH PILIHAN</p>
+<h3>Tambah data master</h3>
+<form class="master-form" id="masterForm">
+<label>Jenis data<select id="masterTypeInput" required="">
+<option value="advertisers">PT Advertiser</option>
+<option value="pods">POD</option>
+<option value="units">Unit On Air</option>
+<option value="formats">Format VA</option>
+<option value="durations">Durasi</option>
+<option value="gfx">Materi GFX</option>
+<option value="pics">PIC Ploting</option>
+</select></label>
+<label>Nilai baru<input id="masterValueInput" maxlength="100" placeholder="Contoh: POD 8" required=""/></label>
+<button class="primary-button" type="submit">+ Simpan ke Master</button>
+</form>
+<p class="master-hint">Data yang sudah dipakai tidak dapat dihapus.</p>
+</article>
+<article class="panel master-summary-panel">
+<p class="section-label">RINGKASAN</p>
+<h3>Jumlah data aktif</h3>
+<div class="master-summary" id="masterSummary"></div>
+</article>
+</div>
+<div class="master-grid" id="masterGrid"></div>
+</section>
+<section class="view" data-view-panel="auditlog" id="auditLogView">
+<div class="section-intro panel section-intro--actions audit-log-header">
+<div class="section-intro-copy"><p class="section-label">RIWAYAT AKTIVITAS</p><h3>Audit Log</h3><p>Pantau siapa yang menambah, mengubah, menghapus, atau mengimpor data di workspace.</p></div>
+<div class="audit-log-live-badge"><span aria-hidden="true"></span><strong>Realtime Firebase</strong></div>
+</div>
+<div class="full-timeline-kpis audit-log-kpis" id="auditLogKpis"></div>
+<div class="toolbar panel audit-log-toolbar">
+<div class="search-box"><span>⌕</span><input id="auditSearchInput" placeholder="Cari akun, brand, batch, jadwal, atau ringkasan aktivitas..." type="search"/></div>
+<select aria-label="Filter akun pelaku" id="auditActorFilter"><option value="">Semua akun</option></select>
+<select aria-label="Filter jenis aktivitas" id="auditActionFilter"><option value="">Semua aktivitas</option></select>
+<button class="secondary-button" id="resetAuditFilterButton" type="button">Reset</button>
+</div>
+<article class="panel data-panel audit-log-panel">
+<div class="panel-heading data-heading"><div><p class="section-label">CATATAN PERUBAHAN</p><h3><span id="auditResultCount">0</span> aktivitas ditampilkan</h3></div><span class="muted-caption">Riwayat terbaru ditampilkan paling atas.</span></div>
+<div class="table-wrap data-table-wrap">
+<table class="data-table audit-log-table">
+<thead><tr><th>Waktu</th><th>Pelaku</th><th>Aktivitas</th><th>Objek</th><th>Ringkasan</th><th>Perubahan</th></tr></thead>
+<tbody id="auditLogBody"></tbody>
+</table>
+</div>
+</article>
+</section>
+<section class="view" data-view-panel="guide" id="guideView">
+<article class="panel guide-card">
+<p class="section-label">WORKFLOW OPERASIONAL</p>
+<h3>Alur kerja ploting benefit</h3>
+<div class="guide-flow guide-flow--six">
+<div><span>01</span><h4>Siapkan Master Data</h4><p>Kelola PT Advertiser, POD, Unit On Air, Format VA, Durasi, Materi GFX, dan PIC sebelum membuat ploting.</p></div>
+<div><span>02</span><h4>Buat Batch Ploting</h4><p>Input detail benefit sekali untuk brand, program, unit, format, durasi, PIC, dan informasi campaign yang sama.</p></div>
+<div><span>03</span><h4>Atur Jadwal Tayang</h4><p>Tambahkan setiap tanggal beserta spot, status tayang, dan note tambahan. Spot dapat bernilai 0.</p></div>
+<div><span>04</span><h4>Kelola Perubahan</h4><p>Ubah status per jadwal. Saat tidak tayang, spot dapat digeser ke tanggal baru dalam batch yang sama. Jadwal salah dapat dihapus.</p></div>
+<div><span>05</span><h4>Monitor Timeline</h4><p>Pantau jadwal melalui Timeline Harian, Kalender Full, dan Timeline Brand berdasarkan bulan, unit, atau brand.</p></div>
+<div><span>06</span><h4>Review PIC dan Export</h4><p>Gunakan Report PIC untuk melihat beban kerja. Master Ploting dan Report PIC dapat diexport ke Excel.</p></div>
+</div>
+<div class="rule-box"><strong>Sumber data utama:</strong> semua perubahan dibuat di Master Ploting VA. Timeline, total spot, dan Report PIC diperbarui otomatis.</div>
+</article>
+</section>
+</main>
+
+<div class="floating-team-chat" id="floatingTeamChat" hidden>
+  <button aria-controls="teamChatPanel" aria-expanded="false" aria-label="Buka chat tim" class="floating-team-chat-launcher" id="teamChatLauncher" title="Chat Tim" type="button">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path><path d="M8 10h8M8 13.5h5"></path></svg>
+    <span class="floating-team-chat-badge" hidden id="floatingTeamChatBadge">0</span>
+  </button>
+
+  <section aria-hidden="true" aria-label="Chat Tim" class="floating-team-chat-panel" hidden id="teamChatPanel">
+    <header class="floating-team-chat-head">
+      <div>
+        <span class="floating-team-chat-kicker"><i aria-hidden="true"></i><strong id="teamChatHeaderStatus">Firebase realtime</strong></span>
+        <h3>Chat Tim</h3>
+      </div>
+      <button aria-label="Tutup chat tim" class="floating-team-chat-close" id="closeTeamChatPanel" type="button">×</button>
+    </header>
+
+    <div class="floating-team-chat-contacts-head">
+      <span>Pilih PIC</span>
+      <b class="team-chat-total-badge" hidden id="teamChatTotalBadge">0</b>
+    </div>
+    <div class="team-chat-contact-list floating-team-chat-contact-list" id="teamChatContactList"></div>
+
+    <section class="team-chat-conversation-panel floating-team-chat-conversation">
+      <div class="team-chat-conversation-head" id="teamChatConversationHead">
+        <div><p class="section-label">PERCAKAPAN</p><h3>Pilih akun PIC</h3><span>Pesan dan reminder tampil di sini.</span></div>
+      </div>
+      <div aria-live="polite" class="team-chat-message-list" id="teamChatMessageList"></div>
+
+      <section class="team-reminder-composer" hidden id="teamReminderComposer">
+        <div class="team-reminder-composer-head"><div><p class="section-label">BUAT REMINDER</p><h4 id="teamReminderComposerTitle">Kirim reminder</h4></div><button aria-label="Tutup form reminder" class="icon-button team-reminder-composer-close" data-close-team-reminder-composer type="button">×</button></div>
+        <form id="teamReminderForm">
+          <label>Pesan reminder<textarea id="teamReminderMessageInput" maxlength="500" placeholder="Contoh: Jangan lupa cek materi" required rows="2"></textarea></label>
+          <div class="team-reminder-form-grid">
+            <label>Prioritas <select id="teamReminderPriorityInput"><option value="normal">Biasa</option><option value="important">Penting</option><option value="urgent">Mendesak</option></select></label>
+          </div>
+          <div class="team-reminder-form-actions"><button class="primary-button" type="submit">Kirim Reminder</button></div>
+        </form>
+      </section>
+
+      <form class="team-chat-composer" id="teamChatForm">
+        <textarea id="teamChatMessageInput" maxlength="1000" placeholder="Tulis pesan..." required rows="1"></textarea>
+        <div class="team-chat-composer-actions"><button class="secondary-button" id="openTeamReminderComposerButton" type="button">⏰ Reminder</button><button class="primary-button" type="submit">Kirim</button></div>
+      </form>
+    </section>
+  </section>
+</div>
+
+<div class="mobile-menu-backdrop" id="mobileMenuBackdrop" aria-hidden="true"></div>
+<aside class="mobile-menu-sheet" id="mobileMenuSheet" aria-hidden="true" aria-label="Menu aplikasi seluler">
+  <div class="mobile-menu-handle" aria-hidden="true"></div>
+  <div class="mobile-menu-head">
+    <div><p>MENU APLIKASI</p><h3>Akses fitur lainnya</h3></div>
+    <button class="mobile-menu-close" id="mobileMenuClose" type="button" aria-label="Tutup menu">×</button>
+  </div>
+  <div class="mobile-menu-grid">
+    <button class="mobile-menu-item" data-mobile-view="batches" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="3"></rect><path d="M8 9h8M8 13h5"></path></svg></span><strong>Batch Ploting</strong><small>Kelola satu batch sekaligus</small></button>
+    <button class="mobile-menu-item" data-mobile-view="plotings" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><path d="M8 9h8M8 13h8M8 17h5"></path></svg></span><strong>Master Ploting</strong><small>Kelola seluruh jadwal dan benefit</small></button>
+    <button class="mobile-menu-item" data-mobile-view="picreport" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"></path></svg></span><strong>Report</strong><small>Ringkasan kinerja seluruh PIC</small></button>
+    <button class="mobile-menu-item" data-mobile-view="brand" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V8l8-4 8 4v11"></path><path d="M8 19v-6h8v6"></path></svg></span><strong>Timeline Brand</strong><small>Jadwal berdasarkan brand</small></button>
+    <button class="mobile-menu-item" data-mobile-view="wagenerator" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8 8 0 1 1-3-6.2"></path><path d="M20 4v6h-6"></path><path d="M8.5 12h7M12 8.5V15.5"></path></svg></span><strong>Generator WA</strong><small>Susun pesan operasional</small></button>
+    <button class="mobile-menu-item" data-mobile-view="masters" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="12" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg></span><strong>Master Data</strong><small>Kelola pilihan dropdown</small></button>
+    <button class="mobile-menu-item" data-mobile-view="auditlog" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"></path><path d="M8 8h8M8 12h8M8 16h5"></path></svg></span><strong>Audit Log</strong><small>Riwayat perubahan data tim</small></button>
+    <button class="mobile-menu-item" data-mobile-view="guide" type="button"><span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4Z"></path><path d="M9 4v16"></path></svg></span><strong>Alur Kerja</strong><small>Panduan penggunaan aplikasi</small></button>
+  </div>
+</aside>
+
+<nav class="mobile-bottom-nav" aria-label="Navigasi bawah aplikasi">
+  <button class="mobile-bottom-item is-active" data-mobile-view="dashboard" type="button"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.5 12 4l8 7.5V20h-5v-5H9v5H4Z"></path></svg></span><em>Beranda</em></button>
+  <button class="mobile-bottom-item" data-mobile-view="daily" type="button"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"></path><circle cx="18" cy="18" r="2"></circle></svg></span><em>Timeline</em></button>
+  <button class="mobile-create-button" id="mobileCreateButton" type="button" aria-label="Tambah ploting baru" title="Tambah ploting"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+  <button class="mobile-bottom-item" data-mobile-view="fulltimeline" type="button"><span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"></rect><path d="M7 3v4M17 3v4M3 10h18"></path></svg></span><em>Kalender</em></button>
+  <button class="mobile-bottom-item" id="mobileMoreButton" type="button" aria-expanded="false"><span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle></svg></span><em>Lainnya</em></button>
+</nav>
+
+<footer class="app-footer" aria-label="Informasi aplikasi">
+  <div class="app-footer-inner">
+    <div class="footer-brand-block">
+      <span class="footer-brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 256 256"><path d="M 256 256 L 128 256 L 0 128 L 128 128 Z"></path><path d="M 256 128 L 128 128 L 0 0 L 128 0 Z"></path></svg>
+      </span>
+      <div>
+        <strong>Benefit Virtual Ads 3TV</strong>
+        <span>Digital plotting workspace untuk operasional RCTI, MNCTV, dan GTV.</span>
+      </div>
+    </div>
+    <div class="footer-network-logos" aria-label="Unit On Air">
+      <span title="RCTI"><img src="assets/rcti.webp" alt="RCTI" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>RCTI</b></span>
+      <span title="MNCTV"><img src="assets/mnctv.webp" alt="MNCTV" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>MNCTV</b></span>
+      <span title="GTV"><img src="assets/gtv.webp" alt="GTV" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('is-fallback');this.remove();"/><b>GTV</b></span>
+    </div>
+    <p class="footer-meta">© 2026 Benefit Virtual Ads 3TV <span aria-hidden="true">•</span> Firebase Realtime Workspace</p>
+  </div>
+</footer>
+</div>
+<section aria-hidden="true" class="modal-backdrop" id="plotModalBackdrop">
+<form class="modal" id="plotForm" novalidate="">
+<div class="modal-header">
+<div><p class="section-label">MASTER PLOTING VA</p><h3 id="plotModalTitle">Tambah Ploting Benefit</h3></div>
+<button aria-label="Tutup" class="icon-button close-modal" data-close-modal="" type="button">×</button>
+</div>
+<input id="plotBatchIdInput" type="hidden"/>
+<div class="form-section">
+<div class="form-section-title"><span>1</span><div><strong>Informasi benefit</strong><small>Isi detail utama.</small></div></div>
+<div class="form-grid form-grid-3">
+<label>PT Advertiser<select id="plotAdvertiserInput" required=""></select></label>
+<label>Brand<input id="plotBrandInput" maxlength="100" placeholder="Contoh: Lifebuoy" required=""/></label>
+<label>Nama Sales<input id="plotSalesInput" maxlength="80" placeholder="Contoh: Vey" required=""/></label>
+<label>PIC Ploting<select id="plotPicInput" required=""></select></label>
+<label>Unit On Air<select id="plotUnitInput" required=""></select></label>
+<label>Program<input id="plotProgramInput" maxlength="100" placeholder="Contoh: Dahsyat" required=""/></label>
+<label>POD<select id="plotPodInput" required=""></select></label>
+<label>Versi VA<input id="plotVersionInput" maxlength="140" placeholder="Nama atau versi materi VA" required=""/></label>
+<label>Format VA<select id="plotFormatInput" required=""></select></label>
+<label>Durasi<select id="plotDurationInput" required=""></select></label>
+<label>Materi GFX<select id="plotGfxInput" required=""></select></label>
+<label>Segmentasi<input id="plotSegmentationInput" maxlength="80" placeholder="Contoh: Prime time"/></label>
+<label class="full-width">Catatan benefit (opsional)<textarea id="plotBatchNoteInput" maxlength="400" placeholder="Catatan yang berlaku untuk seluruh benefit dalam batch ini." rows="3"></textarea></label>
+</div>
+</div>
+<div class="form-section schedule-section">
+<div class="form-section-title"><span>2</span><div><strong>Jadwal tayang</strong><small>Pilih beberapa tanggal lewat kalender atau tambah satu jadwal secara manual. Spot dapat bernilai 0.</small></div></div>
+<section aria-labelledby="multiDatePickerLabel" class="multi-date-picker-shell">
+<div class="multi-date-picker-toolbar">
+<div>
+<strong id="multiDatePickerLabel">Pilih banyak tanggal sekaligus</strong>
+<small>Centang beberapa tanggal dalam satu kalender. Tanggal yang dipilih langsung dibuat sebagai jadwal baru.</small>
+</div>
+<button aria-controls="multiDatePicker" aria-expanded="false" class="secondary-button" id="multiDatePickerToggle" type="button">▦ Pilih beberapa tanggal</button>
+</div>
+<div class="multi-date-picker" hidden="" id="multiDatePicker"></div>
+</section>
+<div class="schedule-table-wrap">
+<table class="schedule-table">
+<thead><tr><th>Tanggal tayang</th><th>Jumlah spot</th><th>Status tayang</th><th>Note tambahan</th><th></th></tr></thead>
+<tbody id="scheduleRows"></tbody>
+</table>
+</div>
+<button class="secondary-button add-schedule-button" id="addScheduleButton" type="button">+ Tambah tanggal tayang</button>
+<p class="date-help">Minimal satu jadwal. Status dan note disimpan per tanggal, jadi perubahan satu jadwal tidak memengaruhi tanggal lain.</p>
+</div>
+<div class="modal-actions"><button class="secondary-button" data-close-modal="" type="button">Batal</button><button class="primary-button" type="submit">Simpan Ploting</button></div>
+</form>
+</section>
+<section aria-hidden="true" class="modal-backdrop" id="scheduleModalBackdrop">
+<form class="modal schedule-edit-modal" id="scheduleEditForm" novalidate="">
+<div class="modal-header">
+<div><p class="section-label">UPDATE PER JADWAL</p><h3>Atur Jadwal Tayang</h3></div>
+<button aria-label="Tutup" class="icon-button close-modal" data-close-schedule-modal="" type="button">×</button>
+</div>
+<input id="scheduleEditIdInput" type="hidden"/>
+<div class="schedule-edit-context" id="scheduleEditContext"></div>
+<div class="form-grid schedule-edit-grid">
+<label>Tanggal tayang<input id="scheduleEditDateInput" required="" type="date"/></label>
+<label>Jumlah spot<input id="scheduleEditSpotInput" max="999" min="0" required="" step="1" type="number"/></label>
+<label class="full-width">Status tayang<select id="scheduleEditStatusInput" required=""></select></label>
+<label class="full-width">Note tambahan per jadwal<textarea id="scheduleEditNoteInput" maxlength="220" placeholder="Contoh: Tidak tayang karena perubahan program." rows="4"></textarea></label>
+</div>
+<section aria-live="polite" class="schedule-slide-panel" hidden="" id="scheduleSlidePanel">
+<div class="schedule-slide-head">
+<div>
+<p class="section-label">SLIDING SPOT</p>
+<h4>Geser spot ke jadwal baru</h4>
+<p>Gunakan saat jadwal ini tidak tayang. Jadwal asal akan menjadi 0 spot, lalu jadwal baru masuk ke batch yang sama.</p>
+</div>
+<label class="slide-toggle">
+<input id="scheduleSlideToggle" type="checkbox"/>
+<span>Geser spot</span>
+</label>
+</div>
+<div class="schedule-slide-fields" hidden="" id="scheduleSlideFields">
+<label>Tanggal tayang pengganti<input id="scheduleSlideDateInput" type="date"/></label>
+<div class="slide-spot-preview">
+<span>Spot yang dipindahkan</span>
+<strong id="scheduleSlideSpotPreview">0 spot</strong>
+<small>Jadwal baru dibuat dengan status Planned.</small>
+</div>
+</div>
+</section>
+<div class="modal-actions schedule-modal-actions"><button class="danger-button" data-delete-schedule="" type="button">Hapus Jadwal</button><span class="modal-actions-spacer"></span><button class="secondary-button" data-close-schedule-modal="" type="button">Batal</button><button class="primary-button" type="submit">Simpan Perubahan</button></div>
+</form>
+</section>
+<section aria-hidden="true" class="modal-backdrop" id="legacyImportModalBackdrop">
+<div aria-labelledby="legacyImportTitle" aria-modal="true" class="modal legacy-import-modal" role="dialog">
+<div class="modal-header">
+<div><p class="section-label">MIGRASI DATA</p><h3 id="legacyImportTitle">Import Data Lama</h3></div>
+<button aria-label="Tutup" class="icon-button close-modal" data-close-legacy-import="" type="button">×</button>
+</div>
+<div class="legacy-import-info">
+<strong>Gunakan untuk mengimpor file 2026 VA yang sudah berjalan.</strong>
+<p>File dibaca di browser, lalu jadwal yang valid disimpan ke Firebase Realtime Database. Data yang sudah ada tidak dihapus. Jadwal Juli 2026 otomatis dilewati karena sudah tersedia di aplikasi.</p>
+</div>
+<div class="legacy-import-form-grid">
+<label class="legacy-upload-field">
+<span>File Excel (.xlsx / .xls)</span>
+<input accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" id="legacyImportFile" type="file"/>
+<small id="legacyImportFileName">Belum ada file dipilih</small>
+</label>
+<label>PIC default untuk data lama<select id="legacyImportPicInput"></select><small>Sumber Excel tidak memiliki kolom PIC ploting.</small></label>
+<label>Status jadwal sebelum hari ini<select id="legacyImportPastStatusInput"></select><small>Spot 0 tetap otomatis menjadi Tidak tayang.</small></label>
+<label>Status jadwal hari ini / mendatang<select id="legacyImportFutureStatusInput"></select></label>
+</div>
+<p class="legacy-import-error" hidden="" id="legacyImportError"></p>
+<section class="legacy-import-preview" hidden="" id="legacyImportPreview">
+<div class="legacy-preview-head"><div><p class="section-label">RINGKASAN IMPORT</p><h4>Data siap ditinjau</h4></div><span id="legacyImportRange"></span></div>
+<div class="legacy-import-summary" id="legacyImportSummary"></div>
+<div class="legacy-import-warnings"><strong>Catatan konversi</strong><ul id="legacyImportWarnings"></ul></div>
+</section>
+<div class="modal-actions legacy-import-actions">
+<button class="secondary-button" data-close-legacy-import="" type="button">Batal</button>
+<button class="primary-button" disabled="" id="legacyImportConfirmButton" type="button">Import ke Realtime Database</button>
+</div>
+</div>
+</section>
+<section aria-hidden="true" class="modal-backdrop profile-modal-backdrop" id="profileModalBackdrop">
+<div aria-labelledby="profileModalTitle" aria-modal="true" class="modal profile-modal" role="dialog">
+<div class="modal-header profile-modal-header">
+<div><p class="section-label">PENGATURAN AKUN</p><h3 id="profileModalTitle">Profil dan akun tim</h3></div>
+<button aria-label="Tutup pengaturan profil" class="icon-button close-modal" data-close-profile-modal type="button">×</button>
+</div>
+<div aria-label="Bagian pengaturan akun" class="profile-modal-tabs" role="tablist">
+<button aria-selected="true" class="is-active" data-profile-tab="profile" role="tab" type="button">Profil saya</button>
+<button aria-selected="false" data-profile-tab="accounts" id="profileAccountsTabButton" role="tab" type="button">Kelola akun</button>
+</div>
+<section class="profile-panel" data-profile-panel="profile">
+<form class="profile-form" id="profileForm">
+<div class="profile-identity-card">
+<div class="profile-avatar-preview" id="profileAvatarPreview"></div>
+<div class="profile-avatar-actions">
+<strong>Foto profil</strong><span id="profileRoleLabel">PIC</span>
+<label class="secondary-button profile-avatar-upload">Pilih foto<input accept="image/*" id="profileAvatarInput" type="file"/></label>
+<button class="text-button" id="removeProfileAvatarButton" type="button">Hapus foto</button>
+<small>Foto otomatis diperkecil agar ringan saat disimpan.</small>
+</div>
+</div>
+<div class="profile-form-grid">
+<label>Nama lengkap<input autocomplete="name" id="profileNameInput" maxlength="80" required type="text"/></label>
+<label>Email akun<input autocomplete="email" id="profileEmailInput" required type="email"/></label>
+<label>Password saat ini<input autocomplete="current-password" id="profileCurrentPasswordInput" placeholder="Wajib jika mengganti email/password" type="password"/></label>
+<label>Password baru<input autocomplete="new-password" id="profileNewPasswordInput" minlength="6" placeholder="Kosongkan jika tidak diubah" type="password"/></label>
+<label>Konfirmasi password baru<input autocomplete="new-password" id="profileConfirmPasswordInput" minlength="6" placeholder="Ulangi password baru" type="password"/></label>
+</div>
+<div class="profile-form-actions"><button class="primary-button" type="submit">Simpan profil</button></div>
+</form>
+<details class="profile-danger-zone">
+<summary>Hapus akun saya</summary>
+<div><strong>Penghapusan ini permanen.</strong><p>Akun Firebase akan dihapus dan kamu langsung keluar. Data ploting lama tetap tersimpan sebagai riwayat.</p></div>
+<form id="deleteOwnAccountForm">
+<label>Password saat ini<input autocomplete="current-password" id="deleteAccountPasswordInput" required type="password"/></label>
+<label>Ketik HAPUS untuk konfirmasi<input autocomplete="off" id="deleteAccountConfirmationInput" required type="text"/></label>
+<button class="danger-button" type="submit">Hapus akun permanen</button>
+</form>
+</details>
+</section>
+<section class="profile-panel" data-profile-panel="accounts" hidden>
+<div class="account-management-layout">
+<article class="account-create-card">
+<p class="section-label">KARYAWAN BARU</p><h4>Tambah akun tim</h4><p>Akun baru otomatis muncul pada daftar PIC dan Chat Tim.</p>
+<form class="create-account-form" id="createAccountForm">
+<label>Nama lengkap<input id="newAccountNameInput" maxlength="80" required type="text"/></label>
+<label>Email akun<input id="newAccountEmailInput" required type="email"/></label>
+<label>Password sementara<input id="newAccountPasswordInput" minlength="6" required type="password"/></label>
+<label>Peran<select id="newAccountRoleInput"><option value="pic">PIC</option><option value="admin">Administrator</option></select></label>
+<button class="primary-button" type="submit">+ Buat akun</button>
+</form>
+</article>
+<article class="account-list-card">
+<div class="account-list-head"><div><p class="section-label">DIREKTORI TIM</p><h4>Akun yang terdaftar</h4></div><span>Realtime</span></div>
+<div class="team-account-management-list" id="teamAccountManagementList"></div>
+<p class="account-management-note">Menonaktifkan akun memblokir aksesnya ke aplikasi dan menghapusnya dari pilihan PIC baru. Penghapusan Firebase permanen dilakukan oleh pemilik akun dari tab Profil saya.</p>
+</article>
+</div>
+</section>
+</div>
+</section>
+<section aria-hidden="true" class="team-reminder-modal-backdrop" hidden id="teamReminderModalBackdrop">
+<article aria-labelledby="teamReminderModalTitle" aria-modal="true" class="team-reminder-modal" role="dialog">
+<div class="team-reminder-modal-accent" aria-hidden="true"></div>
+<div class="team-reminder-modal-icon" aria-hidden="true">⏰</div>
+<p class="section-label">REMINDER UNTUK KAMU</p>
+<h3 id="teamReminderModalTitle">Reminder dari PIC</h3>
+<p class="team-reminder-modal-message" id="teamReminderModalMessage"></p>
+<div class="team-reminder-modal-meta" id="teamReminderModalMeta"></div>
+<div class="team-reminder-modal-actions">
+<button class="secondary-button" data-team-reminder-modal-action="snooze" type="button">Ingatkan 10 menit lagi</button>
+<button class="secondary-button" data-team-reminder-modal-action="open" type="button">Buka chat</button>
+<button class="primary-button" data-team-reminder-modal-action="complete" type="button">Tandai selesai</button>
+</div>
+</article>
+</section>
+<aside aria-atomic="true" aria-label="Reminder jadwal Planned untuk PIC" aria-live="polite" class="pic-overdue-reminder-card" hidden id="picOverdueReminderCard"></aside>
+<div aria-atomic="false" aria-label="Notifikasi aplikasi" aria-live="polite" class="gooey-toast-region" id="toast"></div>
+<svg aria-hidden="true" class="gooey-toast-filter-defs" focusable="false" width="0" height="0">
+<defs>
+<filter id="gooeyToastFilter" x="-60%" y="-60%" width="220%" height="220%" color-interpolation-filters="sRGB">
+<feGaussianBlur in="SourceGraphic" stdDeviation="6" result="gooeyToastBlur"></feGaussianBlur>
+<feColorMatrix in="gooeyToastBlur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10" result="gooeyToastGoo"></feColorMatrix>
+<feComposite in="SourceGraphic" in2="gooeyToastGoo" operator="atop"></feComposite>
+</filter>
+</defs>
+</svg>
+<script defer="" src="update-check.js?v=55"></script>
+<script src="app.js?v=122" type="module"></script>
 </body>
 </html>
