@@ -32,8 +32,8 @@
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" rel="modulepreload"/>
-<link href="app.js?v=123" rel="modulepreload"/>
-<link href="style.css?v=123" rel="stylesheet"/>
+<link href="app.js?v=125" rel="modulepreload"/>
+<link href="style.css?v=125" rel="stylesheet"/>
 </head>
 <body data-active-view="dashboard">
 <section aria-labelledby="authGateTitle" aria-live="polite" class="auth-gate" id="authGate">
@@ -550,29 +550,35 @@
 </main>
 
 <div class="floating-team-chat" id="floatingTeamChat" hidden>
-  <button aria-controls="teamChatPanel" aria-expanded="false" aria-label="Buka chat tim" class="floating-team-chat-launcher" id="teamChatLauncher" title="Chat Tim" type="button">
+  <button aria-controls="teamChatPanel" aria-expanded="false" aria-label="Buka chat grup PIC" class="floating-team-chat-launcher" id="teamChatLauncher" title="Chat Grup PIC" type="button">
     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path><path d="M8 10h8M8 13.5h5"></path></svg>
     <span class="floating-team-chat-badge" hidden id="floatingTeamChatBadge">0</span>
   </button>
 
-  <section aria-hidden="true" aria-label="Chat Tim" class="floating-team-chat-panel" hidden id="teamChatPanel">
+  <section aria-hidden="true" aria-label="Chat Grup PIC" class="floating-team-chat-panel" hidden id="teamChatPanel">
     <header class="floating-team-chat-head">
-      <div>
-        <span class="floating-team-chat-kicker"><i aria-hidden="true"></i><strong id="teamChatHeaderStatus">Firebase realtime</strong></span>
-        <h3>Chat Tim</h3>
+      <div class="floating-team-chat-identity">
+        <span class="floating-team-chat-head-icon" aria-hidden="true">PIC</span>
+        <div class="floating-team-chat-head-copy">
+          <div class="floating-team-chat-title-row">
+            <h3>Grup PIC</h3>
+            <span class="floating-team-chat-kicker"><i aria-hidden="true"></i><strong id="teamChatHeaderStatus">Grup realtime</strong></span>
+          </div>
+          <div class="floating-team-chat-members">
+            <small id="teamChatGroupMemberCount">Memuat anggota...</small>
+            <div class="team-chat-group-avatars" id="teamChatGroupAvatars" aria-label="Anggota grup"></div>
+          </div>
+        </div>
       </div>
-      <button aria-label="Tutup chat tim" class="floating-team-chat-close" id="closeTeamChatPanel" type="button">×</button>
-    </header>
-
-    <div class="floating-team-chat-contacts-head">
-      <span>Pilih PIC</span>
       <b class="team-chat-total-badge" hidden id="teamChatTotalBadge">0</b>
-    </div>
-    <div class="team-chat-contact-list floating-team-chat-contact-list" id="teamChatContactList"></div>
+      <button aria-label="Tutup chat grup PIC" class="floating-team-chat-close" id="closeTeamChatPanel" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"></path></svg>
+      </button>
+    </header>
 
     <section class="team-chat-conversation-panel floating-team-chat-conversation">
       <div class="team-chat-conversation-head" id="teamChatConversationHead">
-        <div><p class="section-label">PERCAKAPAN</p><h3>Pilih akun PIC</h3><span>Pesan dan reminder tampil di sini.</span></div>
+        <div><p class="section-label">GRUP TIM</p><h3>Semua PIC</h3><span>Pesan dan reminder diterima seluruh tim.</span></div>
       </div>
       <div aria-live="polite" class="team-chat-message-list" id="teamChatMessageList"></div>
 
@@ -588,8 +594,16 @@
       </section>
 
       <form class="team-chat-composer" id="teamChatForm">
-        <textarea id="teamChatMessageInput" maxlength="1000" placeholder="Tulis pesan..." required rows="1"></textarea>
-        <div class="team-chat-composer-actions"><button class="secondary-button" id="openTeamReminderComposerButton" type="button">⏰ Reminder</button><button class="primary-button" type="submit">Kirim</button></div>
+        <div class="team-chat-composer-row">
+          <button class="team-chat-tool-button" id="openTeamReminderComposerButton" type="button" aria-label="Buat reminder untuk semua PIC" title="Buat reminder">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7"></path><path d="M10 19h4"></path></svg>
+          </button>
+          <textarea id="teamChatMessageInput" maxlength="1000" placeholder="Tulis pesan..." required rows="1"></textarea>
+          <button class="team-chat-send-button" type="submit" aria-label="Kirim pesan" title="Kirim pesan">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>
+          </button>
+        </div>
+        <small class="team-chat-composer-hint">Enter untuk kirim · Shift + Enter untuk baris baru</small>
       </form>
     </section>
   </section>
@@ -849,6 +863,6 @@
 </defs>
 </svg>
 <script defer="" src="update-check.js?v=55"></script>
-<script src="app.js?v=123" type="module"></script>
+<script src="app.js?v=125" type="module"></script>
 </body>
 </html>

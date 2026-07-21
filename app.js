@@ -1257,40 +1257,83 @@ function formatTeamDateTime(value) {
   }).format(date);
 }
 
-function teamConversationMessages(recipientId = teamChatState.selectedRecipientId) {
+function firebaseTeamStateKey(accountOrId = currentTeamAccount()) {
+  const account = typeof accountOrId === "object" && accountOrId
+    ? accountOrId
+    : teamAccountById(accountOrId, true);
+  const rawKey = String(account?.uid || account?.id || accountOrId || "");
+  return rawKey.replace(/[.#$\[\]\/]/g, "_");
+}
+
+function groupTeamMessages() {
+  return teamMessages.filter((message) => message.scope === "group" || message.chatType === "group");
+}
+
+function groupTeamReminders() {
+  return teamReminders.filter((reminder) => reminder.scope === "group" || reminder.reminderType === "group");
+}
+
+function visibleTeamReminders() {
   const currentId = currentTeamAccountId();
-  if (!currentId || !recipientId) return [];
-  return teamMessages.filter((message) => (
-    (message.senderId === currentId && message.recipientId === recipientId) ||
-    (message.senderId === recipientId && message.recipientId === currentId)
+  return teamReminders.filter((reminder) => (
+    reminder.scope === "group" ||
+    reminder.reminderType === "group" ||
+    reminder.senderId === currentId ||
+    reminder.recipientId === currentId
   ));
 }
 
-function teamConversationReminders(recipientId = teamChatState.selectedRecipientId) {
-  const currentId = currentTeamAccountId();
-  if (!currentId || !recipientId) return [];
-  return teamReminders.filter((reminder) => (
-    (reminder.senderId === currentId && reminder.recipientId === recipientId) ||
-    (reminder.senderId === recipientId && reminder.recipientId === currentId)
-  ));
+function groupMessageReadAt(message, account = currentTeamAccount()) {
+  if (!message || !account) return "";
+  const key = firebaseTeamStateKey(account);
+  return String(message.readBy?.[key] || message.readBy?.[account.id] || "");
 }
 
-function unreadTeamMessageCount(senderId = "") {
-  const currentId = currentTeamAccountId();
-  return teamMessages.filter((message) => (
-    message.recipientId === currentId &&
-    !message.readAt &&
-    (!senderId || message.senderId === senderId)
+function teamReminderRecipientState(reminder, account = currentTeamAccount()) {
+  if (!reminder || !account) return null;
+
+  if (reminder.scope === "group" || reminder.reminderType === "group") {
+    const states = reminder.recipientStates && typeof reminder.recipientStates === "object"
+      ? reminder.recipientStates
+      : {};
+    const key = firebaseTeamStateKey(account);
+    return states[key] || Object.values(states).find((state) => (
+      state?.accountId === account.id || (account.uid && state?.uid === account.uid)
+    )) || null;
+  }
+
+  if (reminder.recipientId !== account.id) return null;
+  return {
+    accountId: account.id,
+    recipientName: account.name,
+    status: reminder.status || "unread",
+    remindAt: reminder.remindAt || reminder.createdAt,
+    readAt: reminder.readAt || "",
+    completedAt: reminder.completedAt || "",
+    snoozedAt: reminder.snoozedAt || ""
+  };
+}
+
+function teamReminderRecipientStates(reminder) {
+  if (!reminder || !(reminder.scope === "group" || reminder.reminderType === "group")) return [];
+  return Object.values(reminder.recipientStates || {}).filter(Boolean);
+}
+
+function unreadTeamMessageCount() {
+  const current = currentTeamAccount();
+  if (!current) return 0;
+  return groupTeamMessages().filter((message) => (
+    message.senderId !== current.id && !groupMessageReadAt(message, current)
   )).length;
 }
 
-function unreadTeamReminderCount(senderId = "") {
-  const currentId = currentTeamAccountId();
-  return teamReminders.filter((reminder) => (
-    reminder.recipientId === currentId &&
-    reminder.status === "unread" &&
-    (!senderId || reminder.senderId === senderId)
-  )).length;
+function unreadTeamReminderCount() {
+  const current = currentTeamAccount();
+  if (!current) return 0;
+  return visibleTeamReminders().filter((reminder) => {
+    const state = teamReminderRecipientState(reminder, current);
+    return state?.status === "unread";
+  }).length;
 }
 
 function updateTeamChatBadges() {
@@ -1302,98 +1345,93 @@ function updateTeamChatBadges() {
     badge.hidden = count <= 0;
   });
   const status = $("#teamChatHeaderStatus");
-  if (status) status.textContent = total ? `${total} belum dibaca` : "Firebase realtime";
-}
-
-function latestTeamActivityWith(accountId) {
-  const items = [
-    ...teamConversationMessages(accountId).map((item) => ({ ...item, itemType: "message" })),
-    ...teamConversationReminders(accountId).map((item) => ({ ...item, itemType: "reminder" }))
-  ].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  return items[0] || null;
+  if (status) status.textContent = total ? `${total} belum dibaca` : "Grup realtime";
 }
 
 function teamMessageStatusLabel(message) {
-  if (message.recipientId !== currentTeamAccountId()) return message.readAt ? "Dibaca" : "Terkirim";
-  return "";
+  if (message.senderId !== currentTeamAccountId()) return "";
+  const recipients = allTeamAccounts().filter((account) => account.id !== message.senderId);
+  const readCount = recipients.filter((account) => groupMessageReadAt(message, account)).length;
+  return recipients.length ? `Dibaca ${readCount}/${recipients.length}` : "Terkirim";
 }
 
 function teamReminderStatusLabel(reminder) {
+  if (reminder.scope === "group" || reminder.reminderType === "group") {
+    const current = currentTeamAccount();
+    const currentState = teamReminderRecipientState(reminder, current);
+    if (currentState) {
+      if (currentState.status === "completed") return "Selesai";
+      if (currentState.status === "read") return "Dibaca";
+      return "Belum dibaca";
+    }
+    const states = teamReminderRecipientStates(reminder);
+    const completed = states.filter((state) => state.status === "completed").length;
+    return states.length ? `${completed}/${states.length} selesai` : "Terkirim";
+  }
   if (reminder.status === "completed") return "Selesai";
   if (reminder.status === "read") return "Dibaca";
-  const due = new Date(reminder.remindAt || reminder.createdAt).getTime();
-  return Number.isFinite(due) && due > Date.now() ? `Dijadwalkan ${formatTeamDateTime(reminder.remindAt)}` : "Belum dibaca";
+  return "Belum dibaca";
 }
 
 function renderTeamChatContacts() {
-  const list = $("#teamChatContactList");
-  if (!list) return;
-  const selected = ensureSelectedTeamRecipient();
-  const recipients = availableTeamRecipients();
-  list.innerHTML = recipients.length ? recipients.map((account) => {
-    const unread = unreadTeamMessageCount(account.id) + unreadTeamReminderCount(account.id);
-    const latest = latestTeamActivityWith(account.id);
-    const preview = latest
-      ? (latest.itemType === "reminder" ? `Reminder: ${latest.message || ""}` : latest.text || "")
-      : "Belum ada percakapan";
-    return `<button class="team-chat-contact ${selected?.id === account.id ? "is-selected" : ""}" data-team-chat-contact="${escapeHTML(account.id)}" type="button">
-      ${accountAvatarMarkup(account, "team-chat-avatar")}
-      <span class="team-chat-contact-copy"><strong>${escapeHTML(account.name)}</strong><small>${escapeHTML(preview)}</small></span>
-      ${unread ? `<b class="team-chat-contact-unread">${unread > 99 ? "99+" : unread}</b>` : ""}
-    </button>`;
-  }).join("") : `<div class="team-chat-empty">Tidak ada akun PIC lain.</div>`;
+  const participants = allTeamAccounts();
+  const memberCount = $("#teamChatGroupMemberCount");
+  const avatars = $("#teamChatGroupAvatars");
+  if (memberCount) memberCount.textContent = `${participants.length} anggota aktif`;
+  if (avatars) {
+    const visible = participants.slice(0, 5);
+    const remaining = Math.max(0, participants.length - visible.length);
+    avatars.innerHTML = `${visible.map((account) => accountAvatarMarkup(account, "team-chat-group-member-avatar")).join("")}${remaining ? `<span class="team-chat-group-member-more">+${remaining}</span>` : ""}`;
+  }
 }
 
 function renderTeamChatConversation() {
-  const recipient = ensureSelectedTeamRecipient();
   const head = $("#teamChatConversationHead");
   const list = $("#teamChatMessageList");
   const chatForm = $("#teamChatForm");
   const conversation = $(".floating-team-chat-conversation");
   if (!head || !list || !chatForm) return;
 
-  if (!recipient) {
-    conversation?.classList.remove("is-reminder-composer-open");
-    head.innerHTML = `<div><p class="section-label">PERCAKAPAN</p><h3>Belum ada akun tujuan</h3></div>`;
-    list.innerHTML = `<div class="team-chat-empty">Tambahkan akun PIC untuk mulai berkomunikasi.</div>`;
-    chatForm.hidden = true;
-    return;
-  }
-
-  chatForm.hidden = false;
-  head.innerHTML = `<div class="team-chat-active-person">${accountAvatarMarkup(recipient, "team-chat-avatar team-chat-avatar--large")}<div><p class="section-label">PERCAKAPAN DENGAN</p><h3>${escapeHTML(recipient.name)}</h3><span>Pesan dan reminder tersinkron secara realtime.</span></div></div>`;
+  const participants = allTeamAccounts();
+  chatForm.hidden = !currentTeamAccount();
+  head.innerHTML = `<div class="team-chat-active-person"><span class="team-chat-group-avatar" aria-hidden="true">PIC</span><div><p class="section-label">GRUP TIM</p><h3>Semua PIC</h3><span>${participants.length} anggota · Pesan dan reminder diterima seluruh tim.</span></div></div>`;
 
   const currentId = currentTeamAccountId();
   const timeline = [
-    ...teamConversationMessages(recipient.id).map((item) => ({ ...item, itemType: "message", sortAt: item.createdAt })),
-    ...teamConversationReminders(recipient.id).map((item) => ({ ...item, itemType: "reminder", sortAt: item.createdAt }))
+    ...groupTeamMessages().map((item) => ({ ...item, itemType: "message", sortAt: item.createdAt })),
+    ...visibleTeamReminders().map((item) => ({ ...item, itemType: "reminder", sortAt: item.createdAt }))
   ].sort((a, b) => String(a.sortAt || "").localeCompare(String(b.sortAt || "")));
 
   list.innerHTML = timeline.length ? timeline.map((item) => {
     const outgoing = item.senderId === currentId;
-    const sender = teamAccountById(item.senderId);
+    const sender = teamAccountById(item.senderId) || { name: item.senderName || "PIC" };
     if (item.itemType === "reminder") {
       const priority = ["normal", "important", "urgent"].includes(item.priority) ? item.priority : "normal";
-      const canManage = item.recipientId === currentId && item.status !== "completed";
+      const state = teamReminderRecipientState(item);
+      const canManage = Boolean(state && state.status !== "completed");
+      const isGroup = item.scope === "group" || item.reminderType === "group";
+      const audience = isGroup ? "untuk semua PIC" : `untuk ${escapeHTML(item.recipientName || "PIC")}`;
       return `<article class="team-chat-reminder-message ${outgoing ? "is-outgoing" : "is-incoming"} team-chat-reminder--${priority}">
-        <div class="team-chat-reminder-top"><span>⏰ Reminder ${outgoing ? `untuk ${escapeHTML(recipient.name)}` : `dari ${escapeHTML(sender?.name || "PIC")}`}</span><b>${escapeHTML(teamReminderStatusLabel(item))}</b></div>
+        <div class="team-chat-reminder-top"><span>⏰ Reminder ${audience}</span><b>${escapeHTML(teamReminderStatusLabel(item))}</b></div>
+        <strong class="team-chat-message-sender">${outgoing ? "Kamu" : escapeHTML(sender.name || "PIC")}</strong>
         <p>${escapeHTML(item.message || "")}</p>
-        <small>Dibuat ${escapeHTML(formatTeamDateTime(item.createdAt))}</small>
+        <small>${escapeHTML(formatTeamDateTime(item.createdAt))}</small>
         ${canManage ? `<div class="team-chat-reminder-actions"><button data-team-reminder-id="${escapeHTML(item.id)}" data-team-reminder-action="read" type="button">Tandai dibaca</button><button data-team-reminder-id="${escapeHTML(item.id)}" data-team-reminder-action="complete" type="button">Selesai</button></div>` : ""}
       </article>`;
     }
     return `<article class="team-chat-message ${outgoing ? "is-outgoing" : "is-incoming"}">
+      <strong class="team-chat-message-sender">${outgoing ? "Kamu" : escapeHTML(sender.name || "PIC")}</strong>
       <p>${escapeHTML(item.text || "")}</p>
       <small>${escapeHTML(formatTeamDateTime(item.createdAt))}${teamMessageStatusLabel(item) ? ` · ${escapeHTML(teamMessageStatusLabel(item))}` : ""}</small>
     </article>`;
-  }).join("") : `<div class="team-chat-empty team-chat-empty--conversation"><strong>Belum ada pesan dengan ${escapeHTML(recipient.name)}.</strong><span>Kirim chat atau buat reminder pertama.</span></div>`;
+  }).join("") : `<div class="team-chat-empty team-chat-empty--conversation"><strong>Belum ada pesan di grup PIC.</strong><span>Kirim pesan atau buat reminder untuk seluruh tim.</span></div>`;
 
   const composer = $("#teamReminderComposer");
   if (composer) composer.hidden = !teamChatState.reminderComposerOpen;
   conversation?.classList.toggle("is-reminder-composer-open", teamChatState.reminderComposerOpen);
-  chatForm.hidden = teamChatState.reminderComposerOpen;
+  chatForm.hidden = teamChatState.reminderComposerOpen || !currentTeamAccount();
   const composerTitle = $("#teamReminderComposerTitle");
-  if (composerTitle) composerTitle.textContent = `Kirim reminder ke ${recipient.name}`;
+  if (composerTitle) composerTitle.textContent = "Kirim reminder ke semua PIC";
   window.requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
 }
 
@@ -1401,21 +1439,17 @@ function renderTeamChat() {
   renderTeamChatContacts();
   renderTeamChatConversation();
   updateTeamChatBadges();
-  if (teamChatState.panelOpen) markConversationMessagesRead(teamChatState.selectedRecipientId);
+  if (teamChatState.panelOpen) markGroupMessagesRead();
 }
 
-
-function setFloatingTeamChatOpen(open, recipientId = "") {
+function setFloatingTeamChatOpen(open) {
   const panel = $("#teamChatPanel");
   const launcher = $("#teamChatLauncher");
   if (!panel || !launcher) return;
 
-  if (recipientId && teamAccountById(recipientId)) {
-    teamChatState.selectedRecipientId = recipientId;
-  }
   teamChatState.panelOpen = Boolean(open);
   launcher.setAttribute("aria-expanded", String(teamChatState.panelOpen));
-  launcher.setAttribute("aria-label", teamChatState.panelOpen ? "Tutup chat tim" : "Buka chat tim");
+  launcher.setAttribute("aria-label", teamChatState.panelOpen ? "Tutup chat grup PIC" : "Buka chat grup PIC");
 
   if (teamChatState.panelOpen) {
     panel.hidden = false;
@@ -1439,16 +1473,24 @@ function toggleFloatingTeamChat() {
 async function sendTeamChatMessage(event) {
   event?.preventDefault();
   const sender = currentTeamAccount();
-  const recipient = ensureSelectedTeamRecipient();
   const input = $("#teamChatMessageInput");
   const text = normalizeWhitespace(input?.value).slice(0, 1000);
-  if (!sender || !recipient || !text) {
-    showToast({ message: "Pilih akun tujuan dan tulis pesan terlebih dahulu.", type: "warning" });
+  if (!sender || !text) {
+    showToast({ message: "Tulis pesan terlebih dahulu.", type: "warning" });
     return;
   }
   const createdAt = nowIso();
   const id = `MSG-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-  const record = cleanFirebaseValue({ id, senderId: sender.id, senderName: sender.name, recipientId: recipient.id, recipientName: recipient.name, text, createdAt, readAt: "" });
+  const senderStateKey = firebaseTeamStateKey(sender);
+  const record = cleanFirebaseValue({
+    id,
+    scope: "group",
+    senderId: sender.id,
+    senderName: sender.name,
+    text,
+    createdAt,
+    readBy: senderStateKey ? { [senderStateKey]: createdAt } : {}
+  });
   try {
     await update(realtimeMessagesRef, { [id]: record });
     if (input) input.value = "";
@@ -1461,57 +1503,99 @@ async function sendTeamChatMessage(event) {
 async function sendTeamReminder(event) {
   event?.preventDefault();
   const sender = currentTeamAccount();
-  const recipient = ensureSelectedTeamRecipient();
   const messageInput = $("#teamReminderMessageInput");
   const message = normalizeWhitespace(messageInput?.value).slice(0, 500);
   const priority = $("#teamReminderPriorityInput")?.value || "normal";
-  if (!sender || !recipient || !message) {
+  const recipients = allTeamAccounts().filter((account) => account.id !== sender?.id);
+  if (!sender || !message) {
     showToast({ message: "Isi pesan reminder terlebih dahulu.", type: "warning" });
+    return;
+  }
+  if (!recipients.length) {
+    showToast({ message: "Belum ada PIC lain yang dapat menerima reminder.", type: "warning" });
     return;
   }
   const createdAt = nowIso();
   const remindAt = createdAt;
   const id = `REM-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-  const record = cleanFirebaseValue({ id, senderId: sender.id, senderName: sender.name, recipientId: recipient.id, recipientName: recipient.name, message, priority, status: "unread", createdAt, remindAt, readAt: "", completedAt: "", snoozedAt: "" });
+  const recipientStates = {};
+  recipients.forEach((account) => {
+    const key = firebaseTeamStateKey(account);
+    if (!key) return;
+    recipientStates[key] = cleanFirebaseValue({
+      accountId: account.id,
+      uid: account.uid || "",
+      recipientName: account.name,
+      status: "unread",
+      remindAt,
+      readAt: "",
+      completedAt: "",
+      snoozedAt: ""
+    });
+  });
+  const record = cleanFirebaseValue({
+    id,
+    scope: "group",
+    senderId: sender.id,
+    senderName: sender.name,
+    message,
+    priority,
+    createdAt,
+    remindAt,
+    recipientStates
+  });
   try {
     await update(realtimeRemindersRef, { [id]: record });
     if (messageInput) messageInput.value = "";
     if ($("#teamReminderPriorityInput")) $("#teamReminderPriorityInput").value = "normal";
     teamChatState.reminderComposerOpen = false;
     renderTeamChatConversation();
-    showToast({ message: `Reminder untuk ${recipient.name} berhasil dikirim.`, type: "success" });
+    showToast({ message: `Reminder berhasil dikirim ke ${recipients.length} PIC.`, type: "success" });
   } catch (error) {
     console.error("Reminder tidak dapat dikirim.", error);
     showToast({ message: "Reminder belum terkirim. Periksa Firebase Rules dan koneksi internet.", type: "error" });
   }
 }
 
-async function markConversationMessagesRead(senderId) {
-  const currentId = currentTeamAccountId();
-  if (!currentId || !senderId || teamChatReadSyncInProgress) return;
-  const unread = teamMessages.filter((message) => message.senderId === senderId && message.recipientId === currentId && !message.readAt);
+async function markGroupMessagesRead() {
+  const current = currentTeamAccount();
+  if (!current || teamChatReadSyncInProgress) return;
+  const unread = groupTeamMessages().filter((message) => (
+    message.senderId !== current.id && !groupMessageReadAt(message, current)
+  ));
   if (!unread.length) return;
   teamChatReadSyncInProgress = true;
   const readAt = nowIso();
+  const stateKey = firebaseTeamStateKey(current);
   const updates = {};
-  unread.forEach((message) => { updates[`messages/${message.id}/readAt`] = readAt; message.readAt = readAt; });
+  unread.forEach((message) => {
+    updates[`messages/${message.id}/readBy/${stateKey}`] = readAt;
+    message.readBy = { ...(message.readBy || {}), [stateKey]: readAt };
+  });
   updateTeamChatBadges();
   try {
     await update(realtimeRootRef, updates);
   } catch (error) {
-    console.error("Status baca chat gagal diperbarui.", error);
+    console.error("Status baca chat grup gagal diperbarui.", error);
   } finally {
     teamChatReadSyncInProgress = false;
   }
 }
 
 function dueIncomingTeamReminders() {
-  const currentId = currentTeamAccountId();
+  const current = currentTeamAccount();
+  if (!current) return [];
   const now = Date.now();
-  return teamReminders.filter((reminder) => {
-    const due = new Date(reminder.remindAt || reminder.createdAt).getTime();
-    return reminder.recipientId === currentId && reminder.status === "unread" && (!Number.isFinite(due) || due <= now);
-  }).sort((a, b) => String(a.remindAt || a.createdAt || "").localeCompare(String(b.remindAt || b.createdAt || "")));
+  return visibleTeamReminders().filter((reminder) => {
+    const state = teamReminderRecipientState(reminder, current);
+    const due = new Date(state?.remindAt || reminder.remindAt || reminder.createdAt).getTime();
+    return state?.status === "unread" && (!Number.isFinite(due) || due <= now);
+  }).sort((a, b) => {
+    const first = teamReminderRecipientState(a, current);
+    const second = teamReminderRecipientState(b, current);
+    return String(first?.remindAt || a.remindAt || a.createdAt || "")
+      .localeCompare(String(second?.remindAt || b.remindAt || b.createdAt || ""));
+  });
 }
 
 function closeIncomingTeamReminderModal() {
@@ -1536,13 +1620,15 @@ function renderIncomingTeamReminderModal() {
     return;
   }
   const sender = teamAccountById(reminder.senderId);
+  const state = teamReminderRecipientState(reminder);
   activeIncomingReminderId = reminder.id;
   const title = $("#teamReminderModalTitle");
   const message = $("#teamReminderModalMessage");
   const meta = $("#teamReminderModalMeta");
-  if (title) title.textContent = `Reminder dari ${sender?.name || reminder.senderName || "PIC"}`;
+  const isGroup = reminder.scope === "group" || reminder.reminderType === "group";
+  if (title) title.textContent = `${isGroup ? "Reminder grup" : "Reminder"} dari ${sender?.name || reminder.senderName || "PIC"}`;
   if (message) message.textContent = reminder.message || "";
-  if (meta) meta.innerHTML = `<span class="team-reminder-priority team-reminder-priority--${escapeHTML(reminder.priority || "normal")}">${escapeHTML(reminder.priority === "urgent" ? "Mendesak" : reminder.priority === "important" ? "Penting" : "Biasa")}</span><span>${escapeHTML(formatTeamDateTime(reminder.remindAt || reminder.createdAt))}</span>`;
+  if (meta) meta.innerHTML = `<span class="team-reminder-priority team-reminder-priority--${escapeHTML(reminder.priority || "normal")}">${escapeHTML(reminder.priority === "urgent" ? "Mendesak" : reminder.priority === "important" ? "Penting" : "Biasa")}</span><span>${escapeHTML(formatTeamDateTime(state?.remindAt || reminder.remindAt || reminder.createdAt))}</span>${isGroup ? "<span>Untuk semua PIC</span>" : ""}`;
   backdrop.hidden = false;
   backdrop.classList.add("is-open");
   backdrop.setAttribute("aria-hidden", "false");
@@ -1551,33 +1637,47 @@ function renderIncomingTeamReminderModal() {
 
 async function updateTeamReminderStatus(reminderId, action) {
   const reminder = teamReminders.find((item) => item.id === reminderId);
-  const currentId = currentTeamAccountId();
-  if (!reminder || reminder.recipientId !== currentId) return;
-  const previousReminder = clone(reminder);
+  const current = currentTeamAccount();
+  const state = teamReminderRecipientState(reminder, current);
+  if (!reminder || !current || !state) return;
   const now = nowIso();
   const patch = {};
   if (action === "complete") {
-    patch.status = "completed"; patch.readAt = reminder.readAt || now; patch.completedAt = now;
+    patch.status = "completed";
+    patch.readAt = state.readAt || now;
+    patch.completedAt = now;
   } else if (action === "snooze") {
-    patch.status = "unread"; patch.remindAt = new Date(Date.now() + 10 * 60_000).toISOString(); patch.snoozedAt = now;
+    patch.status = "unread";
+    patch.remindAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    patch.snoozedAt = now;
   } else {
-    patch.status = "read"; patch.readAt = now;
+    patch.status = "read";
+    patch.readAt = now;
   }
-  Object.assign(reminder, patch);
+
   closeIncomingTeamReminderModal();
+  const updates = {};
+  if (reminder.scope === "group" || reminder.reminderType === "group") {
+    const key = firebaseTeamStateKey(current);
+    reminder.recipientStates = { ...(reminder.recipientStates || {}) };
+    reminder.recipientStates[key] = { ...(reminder.recipientStates[key] || state), ...patch };
+    Object.entries(patch).forEach(([field, value]) => {
+      updates[`reminders/${reminderId}/recipientStates/${key}/${field}`] = value;
+    });
+  } else {
+    Object.assign(reminder, patch);
+    Object.entries(patch).forEach(([field, value]) => {
+      updates[`reminders/${reminderId}/${field}`] = value;
+    });
+  }
+
   updateTeamChatBadges();
   if (teamChatState.panelOpen) renderTeamChat();
-  const updates = {};
-  Object.entries(patch).forEach(([key, value]) => { updates[`reminders/${reminderId}/${key}`] = value; });
   try {
     await update(realtimeRootRef, updates);
   } catch (error) {
-    Object.assign(reminder, previousReminder);
-    updateTeamChatBadges();
-    if (teamChatState.panelOpen) renderTeamChat();
-    renderIncomingTeamReminderModal();
     console.error("Status reminder gagal diperbarui.", error);
-    showToast({ message: "Status reminder belum tersimpan.", type: "error" });
+    showToast({ message: "Status reminder belum tersimpan. Muat ulang untuk melihat kondisi terbaru.", type: "error" });
   }
 }
 
@@ -1585,9 +1685,8 @@ async function handleIncomingReminderModalAction(action) {
   const reminder = teamReminders.find((item) => item.id === activeIncomingReminderId);
   if (!reminder) return;
   if (action === "open") {
-    teamChatState.selectedRecipientId = reminder.senderId;
     await updateTeamReminderStatus(reminder.id, "read");
-    setFloatingTeamChatOpen(true, reminder.senderId);
+    setFloatingTeamChatOpen(true);
     return;
   }
   await updateTeamReminderStatus(reminder.id, action);
@@ -2124,7 +2223,6 @@ function subscribeToRealtimeDatabase() {
     await ensureCurrentTeamProfile();
     if (currentFirebaseUser && currentTeamAccount()?.active) setAuthGate(false);
     updateUserChip(currentFirebaseUser);
-    ensureSelectedTeamRecipient();
     updateTeamChatBadges();
     if (teamChatState.panelOpen) renderTeamChat();
     if ($("#profileModalBackdrop")?.classList.contains("open")) renderProfileModal();
@@ -5266,13 +5364,6 @@ function bindEvents() {
     const accountToggle = event.target.closest("[data-account-toggle]");
     if (accountToggle) {
       toggleTeamAccountActive(accountToggle.dataset.accountToggle || "", accountToggle.dataset.accountActive === "true");
-      return;
-    }
-    const chatContact = event.target.closest("[data-team-chat-contact]");
-    if (chatContact) {
-      teamChatState.selectedRecipientId = chatContact.dataset.teamChatContact || "";
-      teamChatState.reminderComposerOpen = false;
-      renderTeamChat();
       return;
     }
     const closeReminderComposer = event.target.closest("[data-close-team-reminder-composer]");
