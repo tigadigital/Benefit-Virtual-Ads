@@ -2673,7 +2673,7 @@ function renderBatches() {
 
 function renderDaily() {
   const date = state.operationDate;
-  const plots = sortByDate(state.plotings.filter((plot) => plot.planAiring === date));
+  const plots = sortByUnitThenProgram(state.plotings.filter((plot) => plot.planAiring === date));
   $("#dailyDateInput").value = date;
   $("#dailyTimelineTitle").textContent = `Timeline ${formatDate(date)}`;
   $("#dailyTimelineCaption").textContent = `${plots.length} jadwal · ${sum(plots.map((plot) => plot.spot))} spot`;
@@ -2759,7 +2759,7 @@ function getWaProgramGroups() {
 
 function getWaSpotItems(group) {
   if (!group) return [];
-  return sortByDate(group.plots).flatMap((plot) => {
+  return sortByUnitThenProgram(group.plots).flatMap((plot) => {
     const amount = Math.max(0, Math.floor(Number(plot.spot) || 0));
     return Array.from({ length: amount }, (_, index) => ({
       key: `${group.key}::${plot.id}::${index + 1}`,
@@ -3099,7 +3099,12 @@ function compactFullTimelineRows(dailyPlots) {
     return groups;
   }, {})).sort((a, b) => {
     const alertOrder = Number(b.hasAlert) - Number(a.hasAlert);
-    return alertOrder || unitSortIndex(a.unit) - unitSortIndex(b.unit) || a.brand.localeCompare(b.brand, "id") || a.program.localeCompare(b.program, "id");
+    return unitSortIndex(a.unit) - unitSortIndex(b.unit) ||
+      String(a.unit || "").localeCompare(String(b.unit || ""), "id") ||
+      String(a.program || "").localeCompare(String(b.program || ""), "id") ||
+      String(a.brand || "").localeCompare(String(b.brand || ""), "id") ||
+      alertOrder ||
+      String(a.airingStatus || "").localeCompare(String(b.airingStatus || ""), "id");
   });
 }
 
@@ -3214,9 +3219,7 @@ function renderFullTimeline() {
     }
 
     const date = dates[dateIndex];
-    const dailyPlots = (eventsByDate[date] || []).sort((a, b) =>
-      a.unit.localeCompare(b.unit, "id") || a.brand.localeCompare(b.brand, "id") || a.program.localeCompare(b.program, "id")
-    );
+    const dailyPlots = sortByUnitThenProgram(eventsByDate[date] || []);
     const dailySpot = sum(dailyPlots.map((plot) => plot.spot));
     const weekday = new Date(`${date}T00:00:00`).getDay();
     const weekend = weekday === 0 || weekday === 6 ? " full-calendar-weekend" : "";
