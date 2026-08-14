@@ -142,6 +142,95 @@ const defaultMasters = {
   pics: []
 };
 
+// PIC tidak lagi dikelola sebagai master manual. Sumber pilihan PIC baru adalah
+// direktori teamAccounts aktif; key pics tetap dipertahankan untuk kompatibilitas data lama.
+const EDITABLE_MASTER_KEYS = Object.freeze(["advertisers", "pods", "units", "formats", "durations", "gfx"]);
+
+const MODAL_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',');
+
+let modalFocusContext = { backdrop: null, returnFocus: null };
+
+function resolveModalElement(target) {
+  if (target instanceof Element) return target;
+  return typeof target === "string" ? document.querySelector(target) : null;
+}
+
+function openAccessibleModal(target, initialFocusSelector = "") {
+  const backdrop = resolveModalElement(target);
+  if (!backdrop) return;
+  const currentFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  modalFocusContext = { backdrop, returnFocus: currentFocus };
+  backdrop.classList.add("open");
+  backdrop.setAttribute("aria-hidden", "false");
+
+  window.setTimeout(() => {
+    const initialFocus = initialFocusSelector ? backdrop.querySelector(initialFocusSelector) : null;
+    const dialog = backdrop.querySelector('[role="dialog"]') || backdrop.querySelector(".modal");
+    const firstFocusable = backdrop.querySelector(MODAL_FOCUSABLE_SELECTOR);
+    (initialFocus || firstFocusable || dialog)?.focus?.();
+  }, 40);
+}
+
+function closeAccessibleModal(target) {
+  const backdrop = resolveModalElement(target);
+  if (!backdrop) return;
+  backdrop.classList.remove("open");
+  backdrop.setAttribute("aria-hidden", "true");
+
+  if (modalFocusContext.backdrop === backdrop) {
+    const returnFocus = modalFocusContext.returnFocus;
+    modalFocusContext = { backdrop: null, returnFocus: null };
+    if (returnFocus?.isConnected) window.setTimeout(() => returnFocus.focus?.(), 0);
+  }
+}
+
+function topOpenModalBackdrop() {
+  const openBackdrops = Array.from(document.querySelectorAll(".modal-backdrop.open"));
+  return openBackdrops.at(-1) || null;
+}
+
+function trapFocusWithinModal(event, backdrop) {
+  if (event.key !== "Tab" || !backdrop) return false;
+  const focusable = Array.from(backdrop.querySelectorAll(MODAL_FOCUSABLE_SELECTOR))
+    .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.offsetParent !== null);
+  if (!focusable.length) {
+    event.preventDefault();
+    (backdrop.querySelector('[role="dialog"]') || backdrop.querySelector(".modal"))?.focus?.();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !backdrop.contains(active))) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!event.shiftKey && (active === last || !backdrop.contains(active))) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
+function closeModalByBackdrop(backdrop) {
+  if (!backdrop) return false;
+  if (backdrop.id === "scheduleModalBackdrop") closeScheduleModal();
+  else if (backdrop.id === "plotModalBackdrop") closePlotModal();
+  else if (backdrop.id === "legacyImportModalBackdrop") closeLegacyImportModal();
+  else if (backdrop.id === "profileModalBackdrop") closeProfileModal();
+  else return false;
+  return true;
+}
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -207,9 +296,9 @@ function bindThemeEvents() {
 let state = loadState();
 let activeView = "dashboard";
 let filters = {
-  plot: { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 },
+  plot: { query: "", year: "", months: [], programs: [], units: [], gfx: [], airing: [], page: 1, perPage: 20 },
   batch: { query: "", year: "", month: "", unit: "", page: 1, perPage: 20 },
-  full: { year: "", month: "", unit: "", brand: "" },
+  full: { year: "", month: "", unit: "", brand: "", program: "" },
   brand: { brand: "", year: "", month: "", unit: "", program: "", format: "" },
   pic: { pic: "", year: "", quarter: "" },
   audit: { query: "", actor: "", action: "" }
@@ -259,9 +348,22 @@ const mobileCalendarSelections = { full: "", brand: "" };
 
 // Report mobile dibuka bertahap agar halaman tidak memuat daftar panjang sekaligus.
 const mobilePicReportState = {
-  sections: { overview: true, scope: false, detail: false },
-  detailLimit: 8
+  sections: { overview: true, scope: false, detail: false }
 };
+
+// Pagination Report PIC berlaku pada desktop maupun mobile agar cakupan dan detail
+// tidak memanjang terlalu jauh ke bawah.
+const picReportPaginationState = {
+  detailPage: 1,
+  detailPerPage: 10,
+  scopePerPage: 8,
+  scopePages: { brand: 1, program: 1, unit: 1 }
+};
+
+function resetPicReportPagination() {
+  picReportPaginationState.detailPage = 1;
+  picReportPaginationState.scopePages = { brand: 1, program: 1, unit: 1 };
+}
 
 function isMobileAppLayout() {
   return Boolean(window.matchMedia?.("(max-width: 760px)")?.matches);
@@ -369,6 +471,7 @@ function normalizePlotings(plotings) {
       brand: formatBrandName(plot.brand),
       program: formatProgramName(plot.program),
       pic: String(plot.pic || "Belum ditetapkan").trim() || "Belum ditetapkan",
+      billboardPic: String(plot.billboardPic || "").trim(),
       airingStatus: plot.airingStatus || "Planned",
       batchNote: String(plot.batchNote || "").trim(),
       scheduleNote: legacyScheduleNote
@@ -428,6 +531,71 @@ function matchesQuarter(dateValue, year, quarter) {
 }
 function currentYear() { return yearFromDate(getLocalIsoDate()); }
 function currentMonth() { return monthFromDate(getLocalIsoDate()); }
+
+function isBillboardFormat(format) {
+  const normalized = String(format || "").toLocaleUpperCase("id-ID").replace(/\s+/g, " ").trim();
+  return normalized.includes("BILLBOARD") && normalized.includes("2D");
+}
+
+function visibleBillboardPic(plot = {}) {
+  return isBillboardFormat(plot.format) ? normalizeWhitespace(plot.billboardPic) : "";
+}
+
+function getPlotPicAssignments(plot = {}) {
+  const primaryPic = normalizeWhitespace(plot.pic) || "Belum ditetapkan";
+  const billboardPic = visibleBillboardPic(plot);
+  const assignments = [{ pic: primaryPic, role: "PIC Ploting" }];
+
+  if (billboardPic) {
+    const existing = assignments.find((entry) => entry.pic === billboardPic);
+    if (existing) existing.role = "PIC Ploting & Billboard";
+    else assignments.push({ pic: billboardPic, role: "PIC Billboard" });
+  }
+
+  return assignments;
+}
+
+function plotMatchesPic(plot, pic) {
+  return getPlotPicAssignments(plot).some((entry) => entry.pic === pic);
+}
+
+function plotPicRole(plot, pic) {
+  return getPlotPicAssignments(plot).find((entry) => entry.pic === pic)?.role || "";
+}
+
+function plotPicCellMarkup(plot = {}) {
+  const billboardPic = visibleBillboardPic(plot);
+  const subtitle = billboardPic ? `<span class="cell-subtitle">Billboard: ${escapeHTML(billboardPic)}</span>` : "";
+  return `<span class="pic-chip">${escapeHTML(plot.pic || "Belum ditetapkan")}</span>${subtitle}`;
+}
+
+function reportDetailPicSummary(plot = {}, selectedPic = "") {
+  const billboardPic = visibleBillboardPic(plot);
+  if (selectedPic) {
+    const role = plotPicRole(plot, selectedPic);
+    const extras = [];
+    if (role === "PIC Billboard" && normalizeWhitespace(plot.pic)) extras.push(`Ploting: ${escapeHTML(plot.pic)}`);
+    if (role === "PIC Ploting" && billboardPic) extras.push(`Billboard: ${escapeHTML(billboardPic)}`);
+    if (role === "PIC Ploting & Billboard") extras.push("Ploting & Billboard");
+    return [role, ...extras].filter(Boolean).join(" · ");
+  }
+  return [
+    `Ploting: ${escapeHTML(plot.pic || "Belum ditetapkan")}`,
+    billboardPic ? `Billboard: ${escapeHTML(billboardPic)}` : ""
+  ].filter(Boolean).join(" · ");
+}
+
+function syncBillboardPicFieldVisibility() {
+  const field = $("#plotBillboardPicField");
+  const input = $("#plotBillboardPicInput");
+  const formatInput = $("#plotFormatInput");
+  if (!field || !input || !formatInput) return;
+  const enabled = isBillboardFormat(formatInput.value);
+  field.hidden = !enabled;
+  input.disabled = !enabled;
+  input.required = enabled;
+  if (!enabled) input.value = "";
+}
 function currentQuarter() { return quarterFromDate(getLocalIsoDate()); }
 function formatQuarter(year, quarter) {
   if (!year && !quarter) return "Semua periode";
@@ -644,13 +812,23 @@ function currentTeamPicName() {
   return currentTeamAccount()?.name || "";
 }
 
-function isCurrentTeamPic(plot) {
+function currentTeamPicAssignment(plot) {
   const account = currentTeamAccount();
-  const plotPic = normalizeWhitespace(plot?.pic).toLocaleLowerCase("id-ID");
-  const names = unique([account?.name, ...(account?.picAliases || [])])
+  if (!account) return null;
+  const names = unique([account.name, ...(account.picAliases || [])])
     .map((name) => normalizeWhitespace(name).toLocaleLowerCase("id-ID"))
     .filter(Boolean);
-  return Boolean(plotPic && names.includes(plotPic));
+  return getPlotPicAssignments(plot).find((assignment) => (
+    names.includes(normalizeWhitespace(assignment.pic).toLocaleLowerCase("id-ID"))
+  )) || null;
+}
+
+function isCurrentTeamPic(plot) {
+  return Boolean(currentTeamPicAssignment(plot));
+}
+
+function currentTeamPicRole(plot) {
+  return currentTeamPicAssignment(plot)?.role || "";
 }
 
 function currentPicOverduePlannedPlots(referenceDate = getLocalIsoDate()) {
@@ -694,7 +872,7 @@ function renderCurrentPicOverdueReminderCard() {
         <article class="pic-overdue-card-item">
           <div>
             <strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong>
-            <small>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · ${Number(plot.spot)} spot</small>
+            <small>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · ${Number(plot.spot)} spot${currentTeamPicRole(plot) ? ` · ${escapeHTML(currentTeamPicRole(plot))}` : ""}</small>
           </div>
           <button class="pic-overdue-card-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur</button>
         </article>
@@ -757,6 +935,158 @@ function datalistMarkup(values, selectedValue = "") {
     .map((value) => `<option value="${escapeHTML(value)}"></option>`)
     .join("");
 }
+function normalizePlotMultiValues(values, allowedValues = []) {
+  const allowed = new Set(allowedValues.map((value) => String(value)));
+  return unique((Array.isArray(values) ? values : []).map((value) => String(value)).filter((value) => allowed.has(value)));
+}
+
+const PLOT_MULTI_FILTER_META = Object.freeze({
+  months: Object.freeze({ optionsSelector: "#plotMonthFilterOptions", allLabel: "Semua", singularLabel: "bulan" }),
+  programs: Object.freeze({ optionsSelector: "#plotProgramFilterOptions", allLabel: "Semua", singularLabel: "program" }),
+  units: Object.freeze({ optionsSelector: "#plotUnitFilterOptions", allLabel: "Semua", singularLabel: "unit" }),
+  gfx: Object.freeze({ optionsSelector: "#plotGfxFilterOptions", allLabel: "Semua", singularLabel: "GFX" }),
+  airing: Object.freeze({ optionsSelector: "#plotAiringFilterOptions", allLabel: "Semua", singularLabel: "status" })
+});
+
+function plotMultiFilterPairs(key, programs = []) {
+  if (key === "months") return MONTH_OPTIONS;
+  if (key === "programs") return programs.map((value) => [value, value]);
+  if (key === "units") return state.masters.units.map((value) => [value, value]);
+  if (key === "gfx") return state.masters.gfx.map((value) => [value, value]);
+  if (key === "airing") return AIRING_STATUSES.map((value) => [value, value]);
+  return [];
+}
+
+// Program pada filter Master Ploting bersifat kontekstual. Daftar ini hanya
+// mengambil program yang masih tersedia setelah filter lain diterapkan.
+// Filter Program sendiri sengaja diabaikan agar pengguna tetap dapat memilih
+// lebih dari satu program dari cakupan data yang sama.
+function availablePlotPrograms() {
+  const filter = filters.plot;
+  const query = String(filter.query || "").trim().toLocaleLowerCase("id-ID");
+  const includesSelected = (values, value) => !Array.isArray(values) || !values.length || values.includes(value);
+
+  return sortText(unique(state.plotings.filter((plot) => {
+    const haystack = [
+      plot.batchId, plot.advertiser, plot.brand, plot.sales, plot.pic, plot.billboardPic,
+      plot.unit, plot.program, plot.pod, plot.version, plot.format, plot.duration,
+      plot.gfx, plot.batchNote, plot.scheduleNote
+    ].join(" ").toLocaleLowerCase("id-ID");
+
+    return (!query || haystack.includes(query)) &&
+      (!filter.year || yearFromDate(plot.planAiring) === filter.year) &&
+      includesSelected(filter.months, monthFromDate(plot.planAiring)) &&
+      includesSelected(filter.units, plot.unit) &&
+      includesSelected(filter.gfx, plot.gfx) &&
+      includesSelected(filter.airing, plot.airingStatus);
+  }).map((plot) => plot.program)));
+}
+
+function syncAvailablePlotPrograms() {
+  const programs = availablePlotPrograms();
+  filters.plot.programs = normalizePlotMultiValues(filters.plot.programs, programs);
+  renderPlotMultiFilter("programs", plotMultiFilterPairs("programs", programs));
+  return programs;
+}
+
+function plotMultiFilterSummary(key, pairs) {
+  const selected = Array.isArray(filters.plot[key]) ? filters.plot[key] : [];
+  const labels = new Map(pairs.map(([value, label]) => [String(value), String(label)]));
+  if (!selected.length) return PLOT_MULTI_FILTER_META[key]?.allLabel || "Semua";
+  const selectedLabels = selected.map((value) => labels.get(String(value)) || String(value));
+  if (selectedLabels.length <= 2) return selectedLabels.join(", ");
+  return `${selectedLabels.length} ${PLOT_MULTI_FILTER_META[key]?.singularLabel || "dipilih"}`;
+}
+
+function renderPlotMultiFilter(key, pairs) {
+  const meta = PLOT_MULTI_FILTER_META[key];
+  const root = document.querySelector(`[data-plot-filter-key="${key}"]`);
+  const optionsHost = meta ? $(meta.optionsSelector) : null;
+  if (!meta || !root || !optionsHost) return;
+
+  const selected = new Set(Array.isArray(filters.plot[key]) ? filters.plot[key].map(String) : []);
+  const label = root.querySelector("[data-plot-filter-label]");
+  if (label) label.textContent = plotMultiFilterSummary(key, pairs);
+  root.classList.toggle("has-selection", selected.size > 0);
+
+  const emptyMessage = key === "programs"
+    ? "Tidak ada program yang tersedia pada filter saat ini."
+    : "Belum ada pilihan.";
+  optionsHost.innerHTML = pairs.length ? pairs.map(([value, optionLabel], index) => {
+    const safeValue = escapeHTML(value);
+    const safeLabel = escapeHTML(optionLabel);
+    const checked = selected.has(String(value));
+    return `<label class="plot-multi-filter-option" data-filter-option-label="${safeLabel.toLocaleLowerCase('id-ID')}"><input data-plot-filter-option="${escapeHTML(key)}" value="${safeValue}" type="checkbox" ${checked ? "checked" : ""}/><span>${safeLabel}</span></label>`;
+  }).join("") : `<p class="plot-multi-filter-empty">${emptyMessage}</p>`;
+
+  // Pertahankan pencarian di dalam dropdown ketika opsi Program diperbarui
+  // secara dinamis oleh perubahan Tahun/Bulan/Unit/GFX/Status.
+  const search = root.querySelector("[data-plot-filter-search]");
+  const searchQuery = normalizeWhitespace(search?.value || "").toLocaleLowerCase("id-ID");
+  if (searchQuery) {
+    root.querySelectorAll(".plot-multi-filter-option").forEach((row) => {
+      row.hidden = !String(row.dataset.filterOptionLabel || "").includes(searchQuery);
+    });
+  }
+}
+
+function renderPlotMultiFilters(programs = sortText(unique(state.plotings.map((plot) => plot.program)))) {
+  Object.keys(PLOT_MULTI_FILTER_META).forEach((key) => renderPlotMultiFilter(key, plotMultiFilterPairs(key, programs)));
+}
+
+function closePlotMultiFilters(exceptRoot = null) {
+  $$(".plot-multi-filter").forEach((root) => {
+    if (root === exceptRoot) return;
+    root.classList.remove("is-open");
+    const button = root.querySelector(".plot-multi-filter-toggle");
+    const menu = root.querySelector(".plot-multi-filter-menu");
+    if (button) button.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+  });
+}
+
+function setPlotMultiFilterOpen(root, open) {
+  if (!root) return;
+  if (open) closePlotMultiFilters(root);
+  root.classList.toggle("is-open", open);
+  const button = root.querySelector(".plot-multi-filter-toggle");
+  const menu = root.querySelector(".plot-multi-filter-menu");
+  if (button) button.setAttribute("aria-expanded", String(open));
+  if (menu) menu.hidden = !open;
+  if (open) root.querySelector("[data-plot-filter-search]")?.focus();
+}
+
+function updatePlotMultiFilterLabel(key) {
+  const root = document.querySelector(`[data-plot-filter-key="${key}"]`);
+  if (!root) return;
+  const programs = sortText(unique(state.plotings.map((plot) => plot.program)));
+  const pairs = plotMultiFilterPairs(key, programs);
+  const selected = Array.isArray(filters.plot[key]) ? filters.plot[key] : [];
+  const label = root.querySelector("[data-plot-filter-label]");
+  if (label) label.textContent = plotMultiFilterSummary(key, pairs);
+  root.classList.toggle("has-selection", selected.length > 0);
+}
+
+function setPlotMultiFilterValue(key, value, checked) {
+  if (!Object.prototype.hasOwnProperty.call(PLOT_MULTI_FILTER_META, key)) return;
+  const selected = new Set(Array.isArray(filters.plot[key]) ? filters.plot[key] : []);
+  if (checked) selected.add(value);
+  else selected.delete(value);
+  filters.plot[key] = [...selected];
+  filters.plot.page = 1;
+  updatePlotMultiFilterLabel(key);
+  renderPlotings();
+}
+
+function clearPlotMultiFilter(key) {
+  if (!Object.prototype.hasOwnProperty.call(PLOT_MULTI_FILTER_META, key)) return;
+  filters.plot[key] = [];
+  filters.plot.page = 1;
+  const programs = sortText(unique(state.plotings.map((plot) => plot.program)));
+  renderPlotMultiFilter(key, plotMultiFilterPairs(key, programs));
+  renderPlotings();
+}
+
 function setSelectOptions(selector, values, placeholder, selectedValue = "") {
   const element = $(selector);
   if (!element) return;
@@ -786,6 +1116,7 @@ function applyBrandSearchFilter(scope, input, enforceSelection = false) {
 
   if (scope === "full" && !normalizeWhitespace(typedValue)) {
     filters.full.brand = "";
+    populateSelects();
     renderFullTimeline();
     return;
   }
@@ -802,6 +1133,7 @@ function applyBrandSearchFilter(scope, input, enforceSelection = false) {
   if (scope === "full") {
     if (filters.full.brand === matchedBrand) return;
     filters.full.brand = matchedBrand;
+    populateSelects();
     renderFullTimeline();
     return;
   }
@@ -1112,7 +1444,7 @@ function isExcludedFromAuditLog(entry = {}) {
 }
 
 const AUDIT_FIELD_LABELS = Object.freeze({
-  advertiser: "PT Advertiser", brand: "Brand", sales: "Sales", pic: "PIC", unit: "Unit",
+  advertiser: "PT Advertiser", brand: "Brand", sales: "Sales", pic: "PIC", billboardPic: "PIC Billboard", unit: "Unit",
   program: "Program", pod: "POD", version: "Versi VA", format: "Format VA", duration: "Durasi",
   gfx: "Materi GFX", segmentation: "Segmentasi", batchNote: "Note Batch", planAiring: "Tanggal",
   spot: "Spot", airingStatus: "Status", scheduleNote: "Note Jadwal", scheduleCount: "Jumlah jadwal", scheduleDetail: "Detail jadwal"
@@ -1136,7 +1468,7 @@ function auditChanges(before = {}, after = {}, fields = []) {
 function batchAuditSnapshot(batch = []) {
   const first = batch[0] || {};
   return {
-    advertiser: first.advertiser, brand: first.brand, sales: first.sales, pic: first.pic, unit: first.unit,
+    advertiser: first.advertiser, brand: first.brand, sales: first.sales, pic: first.pic, billboardPic: first.billboardPic, unit: first.unit,
     program: first.program, pod: first.pod, version: first.version, format: first.format, duration: first.duration,
     gfx: first.gfx, segmentation: first.segmentation, batchNote: first.batchNote,
     scheduleCount: batch.length,
@@ -1831,17 +2163,15 @@ function openProfileModal(tab = "profile") {
   profileAvatarDraft = "";
   const backdrop = $("#profileModalBackdrop");
   if (!backdrop) return;
-  backdrop.classList.add("open");
-  backdrop.setAttribute("aria-hidden", "false");
   setProfileMenuOpen(false);
   renderProfileModal();
+  openAccessibleModal(backdrop, profileActiveTab === "accounts" ? "#newAccountNameInput" : "#profileNameInput");
 }
 
 function closeProfileModal() {
   const backdrop = $("#profileModalBackdrop");
   if (!backdrop) return;
-  backdrop.classList.remove("open");
-  backdrop.setAttribute("aria-hidden", "true");
+  closeAccessibleModal(backdrop);
   profileAvatarDraft = "";
   $("#profileForm")?.reset();
   $("#deleteOwnAccountForm")?.reset();
@@ -1892,8 +2222,6 @@ async function saveCurrentProfile(event) {
     await update(realtimeTeamAccountsRef, {
       [key]: cleanFirebaseValue({ ...account, uid: user.uid, id: account.id, username, name, email, avatar, active: true, picAliases: unique([...(account.picAliases || []), ...(previousName !== name ? [previousName] : [])]), updatedAt: nowIso() })
     });
-    state.masters.pics = sortText(unique([...(state.masters.pics || []), name]));
-    saveState();
     recordAuditLog({ action: "PROFILE_UPDATED", entityType: "account", entityId: account.id, target: name, summary: `Profil ${name} diperbarui.`, changes: [
       { field: "Nama", before: previousName, after: name },
       { field: "Username", before: account.username || usernameFromInternalEmail(account.email), after: username }
@@ -1957,8 +2285,6 @@ async function createTeamAccount(event) {
     });
     await update(realtimeTeamAccountsRef, { [credential.user.uid]: record });
     await signOut(secondaryAuth);
-    state.masters.pics = sortText(unique([...(state.masters.pics || []), name]));
-    saveState();
     recordAuditLog({ action: "ACCOUNT_CREATED", entityType: "account", entityId: record.id, target: name, summary: `Akun ${name} dibuat sebagai ${role === "admin" ? "Administrator" : "PIC"}.`, changes: [] });
     $("#createAccountForm")?.reset();
     showToast({ message: `Akun ${name} berhasil dibuat dan otomatis masuk daftar PIC.`, type: "success" });
@@ -2398,7 +2724,7 @@ function populateSelects() {
   const years = availableYears();
   const yearPairs = years.map((year) => [year, year]);
   const brands = sortText(unique(state.plotings.map((plot) => plot.brand)));
-  const pics = sortText(unique(state.plotings.map((plot) => plot.pic)));
+  const pics = sortText(unique(state.plotings.flatMap((plot) => getPlotPicAssignments(plot).map((entry) => entry.pic))));
   const defaultYear = currentYear();
   const defaultMonth = currentMonth();
   const defaultQuarter = currentQuarter();
@@ -2428,15 +2754,30 @@ function populateSelects() {
   if (filters.full.unit && !state.masters.units.includes(filters.full.unit)) filters.full.unit = "";
   if (filters.full.brand && !brands.includes(filters.full.brand)) filters.full.brand = "";
 
+  const fullMonth = monthKeyFromPeriod(filters.full.year, filters.full.month);
+  const fullProgramScope = state.plotings.filter((plot) => (
+    (!fullMonth || monthKey(plot.planAiring) === fullMonth) &&
+    (!filters.full.unit || plot.unit === filters.full.unit) &&
+    (!filters.full.brand || plot.brand === filters.full.brand)
+  ));
+  const fullPrograms = sortText(unique(fullProgramScope.map((plot) => plot.program)));
+  if (filters.full.program && !fullPrograms.includes(filters.full.program)) filters.full.program = "";
+
   if (filters.plot.year && !years.includes(filters.plot.year)) filters.plot.year = "";
   if (filters.batch.year && !years.includes(filters.batch.year)) filters.batch.year = "";
   if (filters.batch.unit && !state.masters.units.includes(filters.batch.unit)) filters.batch.unit = "";
 
+  const allPlotPrograms = sortText(unique(state.plotings.map((plot) => plot.program)));
+  filters.plot.months = normalizePlotMultiValues(filters.plot.months, MONTH_OPTIONS.map(([value]) => value));
+  filters.plot.programs = normalizePlotMultiValues(filters.plot.programs, allPlotPrograms);
+  filters.plot.units = normalizePlotMultiValues(filters.plot.units, state.masters.units);
+  filters.plot.gfx = normalizePlotMultiValues(filters.plot.gfx, state.masters.gfx);
+  filters.plot.airing = normalizePlotMultiValues(filters.plot.airing, AIRING_STATUSES);
+  const plotPrograms = availablePlotPrograms();
+  filters.plot.programs = normalizePlotMultiValues(filters.plot.programs, plotPrograms);
+
   setSelectPairs("#plotYearFilter", yearPairs, "Semua tahun", filters.plot.year);
-  setSelectPairs("#plotMonthFilter", MONTH_OPTIONS, "Semua bulan", filters.plot.month);
-  setSelectOptions("#plotUnitFilter", state.masters.units, "Semua unit", filters.plot.unit);
-  setSelectOptions("#plotGfxFilter", state.masters.gfx, "Semua materi GFX", filters.plot.gfx);
-  setSelectOptions("#plotAiringFilter", AIRING_STATUSES, "Semua status tayang", filters.plot.airing);
+  renderPlotMultiFilters(plotPrograms);
 
   setSelectPairs("#batchYearFilter", yearPairs, "Semua tahun", filters.batch.year);
   setSelectPairs("#batchMonthFilter", MONTH_OPTIONS, "Semua bulan", filters.batch.month);
@@ -2457,6 +2798,7 @@ function populateSelects() {
   setSelectPairs("#fullTimelineMonthSelect", MONTH_OPTIONS, "Pilih bulan", filters.full.month);
   setSelectOptions("#fullTimelineUnitSelect", state.masters.units, "Semua unit", filters.full.unit);
   setSearchableBrandInput("#fullTimelineBrandSelect", "#fullTimelineBrandOptions", brands, filters.full.brand);
+  setSelectOptions("#fullTimelineProgramSelect", fullPrograms, "Semua program", filters.full.program);
 
   setSelectOptions("#plotAdvertiserInput", state.masters.advertisers, "Pilih PT Advertiser");
   setSelectOptions("#plotUnitInput", state.masters.units, "Pilih Unit On Air");
@@ -2465,6 +2807,8 @@ function populateSelects() {
   setSelectOptions("#plotDurationInput", state.masters.durations, "Pilih Durasi");
   setSelectOptions("#plotGfxInput", state.masters.gfx, "Pilih Materi GFX");
   setSelectOptions("#plotPicInput", activePicAccountNames(), "Pilih PIC Ploting");
+  setSelectOptions("#plotBillboardPicInput", activePicAccountNames(), "Pilih PIC Pemasangan Billboard");
+  syncBillboardPicFieldVisibility();
 }
 
 function renderDashboard() {
@@ -2516,13 +2860,23 @@ function renderDashboard() {
 function filteredPlotings() {
   const filter = filters.plot;
   const query = filter.query.trim().toLowerCase();
+  const includesSelected = (values, value) => !Array.isArray(values) || !values.length || values.includes(value);
   return sortByDate(state.plotings.filter((plot) => {
-    const haystack = [plot.batchId, plot.advertiser, plot.brand, plot.sales, plot.pic, plot.unit, plot.program, plot.pod, plot.version, plot.format, plot.duration, plot.gfx, plot.batchNote, plot.scheduleNote].join(" ").toLowerCase();
-    return (!query || haystack.includes(query)) && matchesYearMonth(plot.planAiring, filter.year, filter.month) && (!filter.unit || plot.unit === filter.unit) && (!filter.gfx || plot.gfx === filter.gfx) && (!filter.airing || plot.airingStatus === filter.airing);
+    const haystack = [plot.batchId, plot.advertiser, plot.brand, plot.sales, plot.pic, plot.billboardPic, plot.unit, plot.program, plot.pod, plot.version, plot.format, plot.duration, plot.gfx, plot.batchNote, plot.scheduleNote].join(" ").toLowerCase();
+    return (!query || haystack.includes(query)) &&
+      (!filter.year || yearFromDate(plot.planAiring) === filter.year) &&
+      includesSelected(filter.months, monthFromDate(plot.planAiring)) &&
+      includesSelected(filter.programs, plot.program) &&
+      includesSelected(filter.units, plot.unit) &&
+      includesSelected(filter.gfx, plot.gfx) &&
+      includesSelected(filter.airing, plot.airingStatus);
   }));
 }
 
 function renderPlotings() {
+  // Sinkronkan opsi Program setiap kali filter Master Ploting berubah.
+  // Program yang tidak lagi tersedia pada cakupan filter otomatis dilepas.
+  syncAvailablePlotPrograms();
   const plots = filteredPlotings();
   const perPage = Number(filters.plot.perPage) || 20;
   const totalPages = Math.max(1, Math.ceil(plots.length / perPage));
@@ -2537,7 +2891,7 @@ function renderPlotings() {
     <td><span class="cell-title">${formatDate(plot.planAiring)}</span><span class="cell-subtitle">${escapeHTML(plot.batchId)}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.brand)}</span><span class="cell-subtitle">${escapeHTML(plot.advertiser)}</span></td>
     <td>${escapeHTML(plot.sales)}</td>
-    <td><span class="pic-chip">${escapeHTML(plot.pic)}</span></td>
+    <td>${plotPicCellMarkup(plot)}</td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</span><span class="cell-subtitle">${escapeHTML(plot.version)}</span></td>
     <td>${plotSpotMarkup(plot)}</td>
@@ -2642,7 +2996,7 @@ function renderBatches() {
       <td><span class="cell-title">${escapeHTML(first.batchId)}</span><span class="cell-subtitle">${batch.length} jadwal · Update: ${formatDate(String(first.updatedAt || "").slice(0, 10))}</span></td>
       <td><span class="cell-title">${escapeHTML(first.brand)}</span><span class="cell-subtitle">${escapeHTML(first.advertiser)}</span></td>
       <td><span class="cell-title cell-title-unit">${unitLabelMarkup(first.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(first.program)}</span></span><span class="cell-subtitle">${uniqueUnits.length > 1 ? `${uniqueUnits.length} unit` : escapeHTML(first.pod)} · ${uniquePrograms.length} program</span></td>
-      <td><span class="pic-chip">${escapeHTML(first.pic)}</span><span class="cell-subtitle">Sales: ${escapeHTML(first.sales)}</span></td>
+      <td>${plotPicCellMarkup(first)}<span class="cell-subtitle">Sales: ${escapeHTML(first.sales)}</span></td>
       <td><span class="cell-title batch-benefit-title">${escapeHTML(benefitLabel)}</span><span class="cell-subtitle batch-benefit-subtitle">${escapeHTML(benefitSubtitle)}</span></td>
       <td>${batch.length}</td>
       <td>${spotMarkup(totalSpot)}</td>
@@ -3183,9 +3537,12 @@ function renderFullTimeline() {
   const month = monthKeyFromPeriod(filters.full.year, filters.full.month) || monthKey(state.operationDate);
   const selectedUnit = filters.full.unit;
   const selectedBrand = filters.full.brand;
+  const selectedProgram = filters.full.program;
   const selectedMonthPlots = sortByDate(state.plotings.filter((plot) => monthKey(plot.planAiring) === month));
   const plots = selectedMonthPlots.filter((plot) =>
-    (!selectedUnit || plot.unit === selectedUnit) && (!selectedBrand || plot.brand === selectedBrand)
+    (!selectedUnit || plot.unit === selectedUnit) &&
+    (!selectedBrand || plot.brand === selectedBrand) &&
+    (!selectedProgram || plot.program === selectedProgram)
   );
 
   const [year, monthNumber] = String(month || monthKey(state.operationDate)).split("-").map(Number);
@@ -3203,7 +3560,7 @@ function renderFullTimeline() {
   ];
   $("#fullTimelineKpis").innerHTML = metrics.map(([label, value, note]) => `<article class="mini-kpi"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
 
-  const scope = [selectedUnit || "Semua unit", selectedBrand || "Semua brand"].join(" · ");
+  const scope = [selectedUnit || "Semua unit", selectedBrand || "Semua brand", selectedProgram || "Semua program"].join(" · ");
   $("#fullTimelineTitle").textContent = `Kalender ${formatMonth(month)}`;
   $("#fullTimelineCaption").textContent = `${scope} · ${plots.length} jadwal · ${sum(plots.map((plot) => plot.spot))} spot`;
 
@@ -3386,29 +3743,63 @@ function syncMobilePicReportSections() {
   });
 }
 
+function picReportPaginationMarkup({ currentPage, totalPages, totalItems, startIndex, visibleCount, mode, scopeKey = "", itemLabel = "item" }) {
+  if (totalPages <= 1 || totalItems <= 0) return "";
+
+  const pageButtons = Array.from({ length: totalPages }, (_, index) => index + 1).filter((page) => (
+    totalPages <= 7 || page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1
+  ));
+
+  const pageAttribute = (page) => mode === "detail"
+    ? `data-pic-detail-page="${page}"`
+    : `data-pic-scope-page="${escapeHTML(scopeKey)}" data-page="${page}"`;
+
+  const pagesMarkup = pageButtons.map((page, index) => {
+    const previous = pageButtons[index - 1];
+    const gap = previous && page - previous > 1 ? `<span class="pagination-gap">…</span>` : "";
+    return `${gap}<button class="pagination-page ${page === currentPage ? "is-active" : ""}" ${pageAttribute(page)} type="button" aria-label="Halaman ${page}" ${page === currentPage ? 'aria-current="page"' : ""}>${page}</button>`;
+  }).join("");
+
+  const from = totalItems ? startIndex + 1 : 0;
+  const to = Math.min(startIndex + visibleCount, totalItems);
+  const previousPage = Math.max(1, currentPage - 1);
+  const nextPage = Math.min(totalPages, currentPage + 1);
+
+  return `<div class="pic-report-pagination">
+    <span class="pagination-summary">Menampilkan ${from}–${to} dari ${totalItems} ${escapeHTML(itemLabel)}</span>
+    <div class="pagination-actions">
+      <button class="pagination-nav" ${pageAttribute(previousPage)} type="button" ${currentPage === 1 ? "disabled" : ""}>← Sebelumnya</button>
+      <div class="pagination-pages">${pagesMarkup}</div>
+      <button class="pagination-nav" ${pageAttribute(nextPage)} type="button" ${currentPage === totalPages ? "disabled" : ""}>Berikutnya →</button>
+    </div>
+  </div>`;
+}
+
 function renderPicReport() {
-  const mobileReport = isMobileAppLayout();
   const selectedPic = filters.pic.pic;
   const selectedYear = filters.pic.year;
   const selectedQuarter = filters.pic.quarter;
   const periodPlots = sortByDate(state.plotings.filter((plot) => matchesQuarter(plot.planAiring, selectedYear, selectedQuarter)));
-  const selectedPlots = periodPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
+  const selectedPlots = selectedPic ? sortByDate(periodPlots.filter((plot) => plotMatchesPic(plot, selectedPic))) : periodPlots;
   const selectedLabel = selectedPic || "Semua PIC";
   const periodLabel = formatQuarter(selectedYear, selectedQuarter);
 
+  const reportScopeLabel = selectedPic ? "assignment PIC" : "keseluruhan perusahaan";
   const metrics = [
-    ["Spot tayang", completedSpotSum(selectedPlots), "Status On air/Sudah tayang"],
-    ["Jadwal tayang", selectedPlots.length, "Tanggal terploting"],
-    ["Total spot", sum(selectedPlots.map((plot) => plot.spot)), "Akumulasi spot"],
+    [selectedPic ? "Spot tayang PIC" : "Spot tayang", completedSpotSum(selectedPlots), `Status On air/Sudah tayang · ${reportScopeLabel}`],
+    [selectedPic ? "Jadwal PIC" : "Jadwal", selectedPlots.length, `Tanggal terploting · ${reportScopeLabel}`],
+    [selectedPic ? "Total spot PIC" : "Total spot", sum(selectedPlots.map((plot) => plot.spot)), `Akumulasi spot · ${reportScopeLabel}`],
     ["Brand ditangani", unique(selectedPlots.map((plot) => plot.brand)).length, "Brand pada periode ini"],
     ["Program ditangani", unique(selectedPlots.map((plot) => plot.program)).length, "Program pada periode ini"]
   ];
   $("#picReportKpis").innerHTML = metrics.map(([label, value, note]) => `<article class="mini-kpi"><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`).join("");
 
-  const picNames = sortText(unique(periodPlots.map((plot) => plot.pic)));
-  $("#picOverviewCaption").textContent = periodLabel;
+  const picNames = sortText(unique(periodPlots.flatMap((plot) => getPlotPicAssignments(plot).map((entry) => entry.pic))));
+  $("#picOverviewCaption").textContent = `${periodLabel} · Tabel per PIC = beban assignment`;
+  const assignmentNote = $("#picAssignmentNote");
+  if (assignmentNote) assignmentNote.innerHTML = `<strong>Catatan perhitungan:</strong> jadwal dengan PIC Ploting dan PIC Billboard berbeda tampil pada masing-masing PIC. Karena itu, jangan menjumlahkan seluruh baris tabel sebagai total perusahaan. KPI saat “Semua PIC” dihitung langsung dari seluruh jadwal perusahaan.`;
   $("#picOverviewBody").innerHTML = picNames.length ? picNames.map((pic) => {
-    const plots = periodPlots.filter((plot) => plot.pic === pic);
+    const plots = sortByDate(periodPlots.filter((plot) => plotMatchesPic(plot, pic)));
     return `<tr class="${pic === selectedPic ? "selected-pic-row" : ""}">
       <td><span class="pic-chip">${escapeHTML(pic)}</span></td>
       <td><strong>${completedSpotSum(plots)}</strong></td>
@@ -3432,28 +3823,55 @@ function renderPicReport() {
   })).sort((first, second) => second.count - first.count || second.spot - first.spot || first.value.localeCompare(second.value, "id"));
 
   const scopeGroups = [
-    { label: "Brand yang ditangani", items: summarizeScope("brand"), type: "text" },
-    { label: "Program yang ditangani", items: summarizeScope("program"), type: "text" },
-    { label: "Unit On Air", items: summarizeScope("unit"), type: "unit" }
+    { key: "brand", label: "Brand yang ditangani", items: summarizeScope("brand"), type: "text" },
+    { key: "program", label: "Program yang ditangani", items: summarizeScope("program"), type: "text" },
+    { key: "unit", label: "Unit On Air", items: summarizeScope("unit"), type: "unit" }
   ];
   const scopeMarkup = scopeGroups.map((group) => {
-    const visibleItems = mobileReport ? group.items.slice(0, 6) : group.items;
-    const remaining = Math.max(0, group.items.length - visibleItems.length);
+    const perPage = picReportPaginationState.scopePerPage;
+    const totalPages = Math.max(1, Math.ceil(group.items.length / perPage));
+    const currentPage = Math.min(Math.max(1, Number(picReportPaginationState.scopePages[group.key]) || 1), totalPages);
+    picReportPaginationState.scopePages[group.key] = currentPage;
+    const startIndex = (currentPage - 1) * perPage;
+    const visibleItems = group.items.slice(startIndex, startIndex + perPage);
+    const pagination = picReportPaginationMarkup({
+      currentPage,
+      totalPages,
+      totalItems: group.items.length,
+      startIndex,
+      visibleCount: visibleItems.length,
+      mode: "scope",
+      scopeKey: group.key,
+      itemLabel: "item"
+    });
     return `<article class="pic-scope-group">
       <div class="pic-scope-group-head"><strong>${escapeHTML(group.label)}</strong><span>${group.items.length} item</span></div>
-      <div class="pic-scope-chip-grid">${visibleItems.map((item) => `<span class="pic-scope-chip">${group.type === "unit" ? unitLabelMarkup(item.value, "summary") : `<b title="${escapeHTML(item.value)}">${escapeHTML(item.value)}</b>`}<small>${item.count} jadwal · ${item.spot} spot</small></span>`).join("")}${remaining ? `<span class="pic-scope-more">+${remaining} lainnya</span>` : ""}</div>
+      <div class="pic-scope-chip-grid">${visibleItems.map((item) => `<span class="pic-scope-chip">${group.type === "unit" ? unitLabelMarkup(item.value, "summary") : `<b title="${escapeHTML(item.value)}">${escapeHTML(item.value)}</b>`}<small>${item.count} jadwal · ${item.spot} spot</small></span>`).join("")}</div>
+      ${pagination ? `<div class="pic-scope-pagination">${pagination}</div>` : ""}
     </article>`;
   }).join("");
   $("#picScopeList").innerHTML = selectedPlots.length ? scopeMarkup : `<div class="pic-scope-empty">Belum ada data untuk PIC dan kuartal yang dipilih.</div>`;
 
+  // Detail jadwal diurutkan kronologis dari tanggal terlama ke terbaru.
+  const detailPlots = [...selectedPlots].sort((a, b) => (
+    String(a.planAiring || "").localeCompare(String(b.planAiring || "")) ||
+    String(a.program || "").localeCompare(String(b.program || ""), "id") ||
+    String(a.brand || "").localeCompare(String(b.brand || ""), "id") ||
+    String(a.id || "").localeCompare(String(b.id || ""), "id")
+  ));
+  const detailPerPage = picReportPaginationState.detailPerPage;
+  const detailTotalPages = Math.max(1, Math.ceil(detailPlots.length / detailPerPage));
+  picReportPaginationState.detailPage = Math.min(Math.max(1, Number(picReportPaginationState.detailPage) || 1), detailTotalPages);
+  const detailStartIndex = (picReportPaginationState.detailPage - 1) * detailPerPage;
+  const visibleDetailPlots = detailPlots.slice(detailStartIndex, detailStartIndex + detailPerPage);
+
   $("#picDetailTitle").textContent = `Jadwal ${selectedLabel}`;
-  $("#picDetailCaption").textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot · ${periodLabel}`;
+  $("#picDetailCaption").textContent = `${detailPlots.length} jadwal · ${sum(detailPlots.map((plot) => plot.spot))} spot · ${periodLabel}`;
   const mobileDetailCaption = $("#mobilePicDetailToggleCaption");
-  if (mobileDetailCaption) mobileDetailCaption.textContent = `${selectedPlots.length} jadwal · ${sum(selectedPlots.map((plot) => plot.spot))} spot`;
-  const visibleDetailPlots = mobileReport ? selectedPlots.slice(0, mobilePicReportState.detailLimit) : selectedPlots;
+  if (mobileDetailCaption) mobileDetailCaption.textContent = `${detailPlots.length} jadwal · ${sum(detailPlots.map((plot) => plot.spot))} spot`;
   $("#picDetailBody").innerHTML = visibleDetailPlots.length ? visibleDetailPlots.map((plot) => `<tr>
     <td>${formatDate(plot.planAiring)}</td>
-    <td><span class="cell-title">${escapeHTML(plot.batchId)}</span><span class="cell-subtitle">${escapeHTML(plot.pic)}</span></td>
+    <td><span class="cell-title">${escapeHTML(plot.batchId)}</span><span class="cell-subtitle">${reportDetailPicSummary(plot, selectedPic)}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.brand)}</span><span class="cell-subtitle">${escapeHTML(plot.advertiser)}</span></td>
     <td><span class="cell-title cell-title-unit">${unitLabelMarkup(plot.unit, "table")}<span class="unit-program-separator" aria-hidden="true">·</span><span class="unit-program-name">${escapeHTML(plot.program)}</span></span><span class="cell-subtitle">${escapeHTML(plot.pod)} · ${escapeHTML(plot.segmentation || "Tanpa segmentasi")}</span></td>
     <td><span class="cell-title">${escapeHTML(plot.format)} · ${escapeHTML(plot.duration)}</span><span class="cell-subtitle">${escapeHTML(plot.version)}</span></td>
@@ -3461,20 +3879,27 @@ function renderPicReport() {
     <td>${badge(plot.airingStatus)}</td>
     <td><button class="row-action" data-edit-schedule="${escapeHTML(plot.id)}" type="button">Atur Jadwal</button></td>
   </tr>`).join("") : `<tr><td colspan="8" class="empty-row">Tidak ada jadwal untuk PIC dan periode ini.</td></tr>`;
-  const detailMore = $("#mobilePicDetailMore");
-  if (detailMore) {
-    const remaining = Math.max(0, selectedPlots.length - visibleDetailPlots.length);
-    detailMore.innerHTML = mobileReport && remaining
-      ? `<button class="secondary-button mobile-report-more-button" data-mobile-report-more type="button">Tampilkan ${Math.min(8, remaining)} jadwal berikutnya <span>${visibleDetailPlots.length}/${selectedPlots.length}</span></button>`
-      : "";
+
+  const detailPagination = $("#picDetailPagination");
+  if (detailPagination) {
+    detailPagination.innerHTML = picReportPaginationMarkup({
+      currentPage: picReportPaginationState.detailPage,
+      totalPages: detailTotalPages,
+      totalItems: detailPlots.length,
+      startIndex: detailStartIndex,
+      visibleCount: visibleDetailPlots.length,
+      mode: "detail",
+      itemLabel: "jadwal"
+    });
   }
   syncMobilePicReportSections();
 }
 
 function renderMasters() {
-  const summary = Object.entries(MASTER_META).map(([key, meta]) => `<div class="summary-tile"><strong>${state.masters[key].length}</strong><span>${escapeHTML(meta.label)}</span></div>`).join("");
+  const managedEntries = EDITABLE_MASTER_KEYS.map((key) => [key, MASTER_META[key]]);
+  const summary = `${managedEntries.map(([key, meta]) => `<div class="summary-tile"><strong>${state.masters[key].length}</strong><span>${escapeHTML(meta.label)}</span></div>`).join("")}<div class="summary-tile summary-tile--managed"><strong>${activePicAccountNames().length}</strong><span>PIC dari akun aktif</span></div>`;
   $("#masterSummary").innerHTML = summary;
-  $("#masterGrid").innerHTML = Object.entries(MASTER_META).map(([key, meta]) => `<article class="panel master-card"><div class="master-card-head"><div><p class="section-label">MASTER</p><h4>${escapeHTML(meta.label)}</h4></div><span>${state.masters[key].length} item</span></div><div class="master-list">${state.masters[key].map((value) => `<div class="master-list-item"><span>${escapeHTML(value)}</span><button class="master-delete" data-master-delete="${key}" data-master-value="${encodeURIComponent(value)}" type="button">Hapus</button></div>`).join("")}</div></article>`).join("");
+  $("#masterGrid").innerHTML = managedEntries.map(([key, meta]) => `<article class="panel master-card"><div class="master-card-head"><div><p class="section-label">MASTER</p><h4>${escapeHTML(meta.label)}</h4></div><span>${state.masters[key].length} item</span></div><div class="master-list">${state.masters[key].map((value) => `<div class="master-list-item"><span>${escapeHTML(value)}</span><button class="master-delete" data-master-delete="${key}" data-master-value="${encodeURIComponent(value)}" type="button">Hapus</button></div>`).join("")}</div></article>`).join("");
 }
 
 function renderActiveView() {
@@ -3744,7 +4169,7 @@ function setView(view) {
 }
 
 function resetFullTimelineFilters() {
-  filters.full = { year: currentYear(), month: currentMonth(), unit: "", brand: "" };
+  filters.full = { year: currentYear(), month: currentMonth(), unit: "", brand: "", program: "" };
   populateSelects();
   renderFullTimeline();
 }
@@ -3957,7 +4382,9 @@ function openPlotModal(batchId = "") {
   setFormSelectValue("#plotFormatInput", state.masters.formats, "Pilih Format VA");
   setFormSelectValue("#plotDurationInput", state.masters.durations, "Pilih Durasi");
   setFormSelectValue("#plotGfxInput", state.masters.gfx, "Pilih Materi GFX");
-  setFormSelectValue("#plotPicInput", state.masters.pics, "Pilih PIC Ploting");
+  const activePics = activePicAccountNames();
+  setFormSelectValue("#plotPicInput", activePics, "Pilih PIC Ploting");
+  setFormSelectValue("#plotBillboardPicInput", activePics, "Pilih PIC Pemasangan Billboard");
 
   if (batchId) {
     const batch = getBatch(batchId);
@@ -3976,25 +4403,24 @@ function openPlotModal(batchId = "") {
     setFormSelectValue("#plotFormatInput", state.masters.formats, "Pilih Format VA", first.format);
     setFormSelectValue("#plotDurationInput", state.masters.durations, "Pilih Durasi", first.duration);
     setFormSelectValue("#plotGfxInput", state.masters.gfx, "Pilih Materi GFX", first.gfx);
-    setFormSelectValue("#plotPicInput", state.masters.pics, "Pilih PIC Ploting", first.pic || "Belum ditetapkan");
+    setFormSelectValue("#plotPicInput", activePics, "Pilih PIC Ploting", first.pic || "Belum ditetapkan");
+    setFormSelectValue("#plotBillboardPicInput", activePics, "Pilih PIC Pemasangan Billboard", first.billboardPic || "");
     batch.forEach((plot) => addScheduleRow(plot.planAiring, plot.spot, plot.airingStatus, plot.scheduleNote));
     $("#plotModalTitle").textContent = `Edit Batch ${batchId}`;
   } else {
     addScheduleRow("", 1, "Planned", "");
     $("#plotModalTitle").textContent = "Tambah Ploting Benefit";
   }
+  syncBillboardPicFieldVisibility();
   updateScheduleRemoveButtons();
   renderMultiDatePicker();
-  $("#plotModalBackdrop").classList.add("open");
-  $("#plotModalBackdrop").setAttribute("aria-hidden", "false");
-  setTimeout(() => $("#plotAdvertiserInput").focus(), 40);
+  openAccessibleModal("#plotModalBackdrop", "#plotAdvertiserInput");
 }
 
 function closePlotModal() {
   resetMultiDatePicker();
   renderMultiDatePicker();
-  $("#plotModalBackdrop").classList.remove("open");
-  $("#plotModalBackdrop").setAttribute("aria-hidden", "true");
+  closeAccessibleModal("#plotModalBackdrop");
 }
 
 function readScheduleRows() {
@@ -4015,16 +4441,18 @@ function normalizePlotNameInputs() {
 
 function formPayload() {
   normalizePlotNameInputs();
+  const format = $("#plotFormatInput").value;
   return {
     advertiser: $("#plotAdvertiserInput").value,
     brand: formatBrandName($("#plotBrandInput").value),
     sales: $("#plotSalesInput").value.trim(),
     pic: $("#plotPicInput").value,
+    billboardPic: isBillboardFormat(format) ? $("#plotBillboardPicInput").value : "",
     unit: $("#plotUnitInput").value,
     program: formatProgramName($("#plotProgramInput").value),
     pod: $("#plotPodInput").value,
     version: $("#plotVersionInput").value.trim(),
-    format: $("#plotFormatInput").value,
+    format,
     duration: $("#plotDurationInput").value,
     gfx: $("#plotGfxInput").value,
     segmentation: $("#plotSegmentationInput").value.trim(),
@@ -4036,6 +4464,7 @@ function savePlotFromForm(event) {
   event.preventDefault();
   const payload = formPayload();
   const required = [payload.advertiser, payload.brand, payload.sales, payload.pic, payload.unit, payload.program, payload.pod, payload.version, payload.format, payload.duration, payload.gfx];
+  if (isBillboardFormat(payload.format)) required.push(payload.billboardPic);
   if (required.some((value) => !value)) { showToast("Lengkapi seluruh field wajib sebelum menyimpan."); return; }
   const schedules = readScheduleRows();
   if (!schedules.length || schedules.some((item) => !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || !Number.isInteger(item.spot) || item.spot < 0 || !item.airingStatus)) {
@@ -4068,7 +4497,7 @@ function savePlotFromForm(event) {
       action: "BATCH_UPDATED", entityType: "batch", entityId: existingBatchId,
       target: auditTargetFromPlot(updatedBatch[0]),
       summary: `Batch ${existingBatchId} diperbarui untuk ${schedules.length} tanggal.`,
-      changes: auditChanges(beforeSnapshot, batchAuditSnapshot(updatedBatch), ["advertiser", "brand", "sales", "pic", "unit", "program", "pod", "version", "format", "duration", "gfx", "segmentation", "batchNote", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
+      changes: auditChanges(beforeSnapshot, batchAuditSnapshot(updatedBatch), ["advertiser", "brand", "sales", "pic", "billboardPic", "unit", "program", "pod", "version", "format", "duration", "gfx", "segmentation", "batchNote", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
     };
     showToast(`Batch ${existingBatchId} diperbarui untuk ${schedules.length} tanggal.`);
   } else {
@@ -4089,7 +4518,7 @@ function savePlotFromForm(event) {
       action: "BATCH_CREATED", entityType: "batch", entityId: newBatchId,
       target: auditTargetFromPlot(newBatch[0]),
       summary: `Batch ${newBatchId} dibuat dengan ${schedules.length} jadwal dan ${sum(schedules.map((item) => item.spot))} spot.`,
-      changes: auditChanges({}, batchAuditSnapshot(newBatch), ["advertiser", "brand", "sales", "pic", "unit", "program", "pod", "version", "format", "duration", "gfx", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
+      changes: auditChanges({}, batchAuditSnapshot(newBatch), ["advertiser", "brand", "sales", "pic", "billboardPic", "unit", "program", "pod", "version", "format", "duration", "gfx", "scheduleCount", "planAiring", "spot", "airingStatus", "scheduleDetail"])
     };
     showToast(`Batch ${newBatchId} disimpan. ${schedules.length} jadwal dibuat otomatis.`);
   }
@@ -4166,14 +4595,11 @@ function openScheduleModal(scheduleId) {
   $("#scheduleSlideToggle").checked = false;
   $("#scheduleSlideDateInput").value = "";
   syncScheduleSlideControls();
-  $("#scheduleModalBackdrop").classList.add("open");
-  $("#scheduleModalBackdrop").setAttribute("aria-hidden", "false");
-  setTimeout(() => $("#scheduleEditStatusInput").focus(), 40);
+  openAccessibleModal("#scheduleModalBackdrop", "#scheduleEditStatusInput");
 }
 
 function closeScheduleModal() {
-  $("#scheduleModalBackdrop").classList.remove("open");
-  $("#scheduleModalBackdrop").setAttribute("aria-hidden", "true");
+  closeAccessibleModal("#scheduleModalBackdrop");
 }
 
 function saveScheduleFromForm(event) {
@@ -4309,7 +4735,7 @@ function addMasterValue(event) {
   event.preventDefault();
   const key = $("#masterTypeInput").value;
   const value = $("#masterValueInput").value.trim();
-  if (!MASTER_META[key] || !value) { showToast("Pilih jenis data dan isi nilai baru."); return; }
+  if (!EDITABLE_MASTER_KEYS.includes(key) || !MASTER_META[key] || !value) { showToast("Pilih jenis data master yang dapat dikelola dan isi nilai baru."); return; }
   const exists = state.masters[key].some((item) => item.toLowerCase() === value.toLowerCase());
   if (exists) { showToast("Nilai tersebut sudah ada pada Master Data."); return; }
   state.masters[key] = sortText([...state.masters[key], value]);
@@ -4333,7 +4759,7 @@ function deleteMasterValue(key, encodedValue) {
   } catch (error) {
     value = String(encodedValue || "");
   }
-  if (!meta || !value || !Array.isArray(state.masters[key])) return;
+  if (!EDITABLE_MASTER_KEYS.includes(key) || !meta || !value || !Array.isArray(state.masters[key])) return;
   const used = state.plotings.some((plot) => plot[meta.field] === value);
   if (used) { showToast("Data ini sudah digunakan pada ploting sehingga tidak dapat dihapus."); return; }
   if (!window.confirm(`Hapus ${meta.label}: ${value}?`)) return;
@@ -4460,12 +4886,12 @@ function importedId(prefix, serial) {
 }
 
 function getDefaultLegacyImportPic() {
-  const activeName = currentTeamAccount()?.name;
-  return state.masters.pics.includes(activeName) ? activeName : "Belum ditetapkan";
+  const activeName = currentTeamAccount()?.name || "";
+  return activePicAccountNames().includes(activeName) ? activeName : "Belum ditetapkan";
 }
 
 function ensureLegacyImportPicOptions(selectedValue = "") {
-  const values = sortText(unique(["Belum ditetapkan", ...state.masters.pics]));
+  const values = ["Belum ditetapkan", ...activePicAccountNames().filter((name) => name !== "Belum ditetapkan")];
   setSelectOptions("#legacyImportPicInput", values, "Pilih PIC default", selectedValue || getDefaultLegacyImportPic());
 }
 
@@ -4488,16 +4914,13 @@ function openLegacyImportModal() {
   ensureLegacyImportPicOptions();
   setSelectOptions("#legacyImportPastStatusInput", ["Sudah tayang", "On air", "Siap tayang", "Planned"], "Status tanggal lalu", "Sudah tayang");
   setSelectOptions("#legacyImportFutureStatusInput", ["Planned", "Siap tayang", "On air", "Sudah tayang"], "Status hari ini / mendatang", "Planned");
-  $("#legacyImportModalBackdrop").classList.add("open");
-  $("#legacyImportModalBackdrop").setAttribute("aria-hidden", "false");
+  openAccessibleModal("#legacyImportModalBackdrop", "#legacyImportFile");
   updateLegacyImportActions();
-  setTimeout(() => $("#legacyImportFile")?.focus(), 40);
 }
 
 function closeLegacyImportModal() {
   if (legacyImportInProgress) return;
-  $("#legacyImportModalBackdrop").classList.remove("open");
-  $("#legacyImportModalBackdrop").setAttribute("aria-hidden", "true");
+  closeAccessibleModal("#legacyImportModalBackdrop");
 }
 
 function loadHtml2Canvas() {
@@ -5110,6 +5533,7 @@ function masterPlotingExportRows(plots) {
     plot.brand,
     plot.sales,
     plot.pic,
+    visibleBillboardPic(plot),
     plot.unit,
     plot.program,
     plot.pod,
@@ -5130,15 +5554,18 @@ function masterPlotingExportRows(plots) {
 function exportPlotingsExcel() {
   const plots = filteredPlotings();
   if (!plots.length) { showToast("Tidak ada data Master Ploting untuk diexport."); return; }
-  const headers = ["No", "Tanggal Tayang", "Batch ID", "PT Advertiser", "Brand", "Nama Sales", "PIC Ploting", "Unit On Air", "Program", "POD", "Versi VA", "Format VA", "Durasi", "Materi GFX", "Spot", "Status Tayang", "Segmentasi", "Catatan Benefit", "Note Tambahan", "Dibuat", "Diubah"];
-  const plotPeriod = filters.plot.year || filters.plot.month ? [filters.plot.year || "semua-tahun", filters.plot.month ? (MONTH_OPTIONS.find(([value]) => value === filters.plot.month)?.[1] || filters.plot.month) : "semua-bulan"].join("-") : "semua-periode";
-  const scope = [plotPeriod, filters.plot.unit || "semua-unit"].join("-");
+  const headers = ["No", "Tanggal Tayang", "Batch ID", "PT Advertiser", "Brand", "Nama Sales", "PIC Ploting", "PIC Billboard", "Unit On Air", "Program", "POD", "Versi VA", "Format VA", "Durasi", "Materi GFX", "Spot", "Status Tayang", "Segmentasi", "Catatan Benefit", "Note Tambahan", "Dibuat", "Diubah"];
+  const selectedMonthLabels = (filters.plot.months || []).map((month) => MONTH_OPTIONS.find(([value]) => value === month)?.[1] || month);
+  const plotPeriod = [filters.plot.year || "semua-tahun", selectedMonthLabels.length ? selectedMonthLabels.join("+") : "semua-bulan"].join("-");
+  const selectedPrograms = filters.plot.programs?.length ? filters.plot.programs.join("+") : "semua-program";
+  const selectedUnits = filters.plot.units?.length ? filters.plot.units.join("+") : "semua-unit";
+  const scope = [plotPeriod, selectedPrograms, selectedUnits].join("-");
   exportExcelWorkbook(`master-ploting-va-${scope}-${state.operationDate}`, [{
     name: "Master Ploting",
     headers,
     rows: masterPlotingExportRows(plots),
-    numericColumns: [0, 14],
-    widths: [42, 100, 90, 190, 120, 85, 100, 85, 160, 65, 220, 110, 90, 105, 50, 95, 120, 220, 220, 130, 130]
+    numericColumns: [0, 15],
+    widths: [42, 100, 90, 190, 120, 85, 100, 110, 85, 160, 65, 220, 110, 90, 105, 50, 95, 120, 220, 220, 130, 130]
   }]);
   showToast(`${plots.length} jadwal Master Ploting diexport ke Excel.`);
 }
@@ -5148,10 +5575,10 @@ function getPicExportData() {
   const selectedYear = filters.pic.year;
   const selectedQuarter = filters.pic.quarter;
   const periodPlots = sortByDate(state.plotings.filter((plot) => matchesQuarter(plot.planAiring, selectedYear, selectedQuarter)));
-  const selectedPlots = periodPlots.filter((plot) => !selectedPic || plot.pic === selectedPic);
-  const picNames = sortText(unique(periodPlots.map((plot) => plot.pic)));
+  const selectedPlots = selectedPic ? sortByDate(periodPlots.filter((plot) => plotMatchesPic(plot, selectedPic))) : periodPlots;
+  const picNames = sortText(unique(periodPlots.flatMap((plot) => getPlotPicAssignments(plot).map((entry) => entry.pic))));
   const summaryRows = picNames.map((pic, index) => {
-    const plots = periodPlots.filter((plot) => plot.pic === pic);
+    const plots = sortByDate(periodPlots.filter((plot) => plotMatchesPic(plot, pic)));
     return [index + 1, pic, completedSpotSum(plots), plots.length, sum(plots.map((plot) => plot.spot)), unique(plots.map((plot) => plot.brand)).join(", "), unique(plots.map((plot) => plot.program)).join(", "), unique(plots.map((plot) => plot.unit)).join(", ")];
   });
   return { selectedPic, selectedYear, selectedQuarter, periodPlots, selectedPlots, summaryRows };
@@ -5162,21 +5589,39 @@ function exportPicExcel() {
   if (!selectedPlots.length && !summaryRows.length) { showToast("Tidak ada data Report PIC untuk diexport."); return; }
   const period = formatQuarter(selectedYear, selectedQuarter);
   const periodFile = [selectedYear || "semua-tahun", selectedQuarter || "semua-kuartal"].join("-");
-  const detailRows = masterPlotingExportRows(selectedPlots).map((row) => [row[0], row[1], row[2], row[6], row[3], row[4], row[7], row[8], row[9], row[11], row[12], row[14], row[15], row[16], row[18]]);
+  const detailRows = sortByDate(selectedPlots).map((plot, index) => [
+    index + 1,
+    formatDate(plot.planAiring),
+    plot.batchId,
+    selectedPic ? (plotPicRole(plot, selectedPic) || "PIC Ploting") : getPlotPicAssignments(plot).map((entry) => `${entry.pic} (${entry.role})`).join(", "),
+    plot.pic,
+    visibleBillboardPic(plot),
+    plot.advertiser,
+    plot.brand,
+    plot.unit,
+    plot.program,
+    plot.pod,
+    plot.format,
+    plot.duration,
+    Number(plot.spot || 0),
+    plot.airingStatus,
+    plot.segmentation || "",
+    plot.scheduleNote || ""
+  ]);
   exportExcelWorkbook(`report-pic-${selectedPic || "semua-pic"}-${periodFile}-${state.operationDate}`, [
     {
       name: "Ringkasan PIC",
-      headers: ["No", "PIC Ploting", "Spot On Air/Sudah Tayang", "Jadwal", "Total Spot", "Brand Ditangani", "Program Ditangani", "Unit On Air"],
+      headers: ["No", "PIC", "Spot Tayang (Assignment)", "Jadwal (Assignment)", "Total Spot (Assignment)", "Brand Ditangani", "Program Ditangani", "Unit On Air"],
       rows: summaryRows,
       numericColumns: [0, 2, 3, 4],
-      widths: [42, 110, 120, 60, 70, 220, 250, 120]
+      widths: [42, 130, 120, 60, 70, 220, 250, 120]
     },
     {
       name: "Detail PIC",
-      headers: ["No", "Tanggal", "Batch ID", "PIC Ploting", "PT Advertiser", "Brand", "Unit On Air", "Program", "POD", "Format VA", "Durasi", "Spot", "Status Tayang", "Segmentasi", "Note Tambahan"],
+      headers: ["No", "Tanggal", "Batch ID", "Peran PIC", "PIC Ploting", "PIC Billboard", "PT Advertiser", "Brand", "Unit On Air", "Program", "POD", "Format VA", "Durasi", "Spot", "Status Tayang", "Segmentasi", "Note Tambahan"],
       rows: detailRows,
-      numericColumns: [0, 11],
-      widths: [42, 100, 90, 110, 190, 120, 90, 160, 65, 115, 90, 55, 100, 130, 240]
+      numericColumns: [0, 13],
+      widths: [42, 100, 90, 140, 110, 120, 190, 120, 90, 160, 65, 115, 90, 55, 100, 130, 240]
     }
   ]);
   showToast(`Report PIC ${selectedPic || "semua PIC"} diexport ke Excel.`);
@@ -5296,13 +5741,42 @@ function bindEvents() {
   $("#dailyDateInput").addEventListener("change", (event) => { state.operationDate = event.target.value || DEFAULT_OPERATION_DATE; saveState(); renderAll(); });
   $("#plotSearchInput").addEventListener("input", (event) => { filters.plot.query = event.target.value; filters.plot.page = 1; renderPlotings(); });
   $("#plotYearFilter").addEventListener("change", (event) => { filters.plot.year = event.target.value; filters.plot.page = 1; renderPlotings(); });
-  $("#plotMonthFilter").addEventListener("change", (event) => { filters.plot.month = event.target.value; filters.plot.page = 1; renderPlotings(); });
-  $("#plotUnitFilter").addEventListener("change", (event) => { filters.plot.unit = event.target.value; filters.plot.page = 1; renderPlotings(); });
-  $("#plotGfxFilter").addEventListener("change", (event) => { filters.plot.gfx = event.target.value; filters.plot.page = 1; renderPlotings(); });
-  $("#plotAiringFilter").addEventListener("change", (event) => { filters.plot.airing = event.target.value; filters.plot.page = 1; renderPlotings(); });
+
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest(".plot-multi-filter-toggle");
+    if (toggle) {
+      const root = toggle.closest(".plot-multi-filter");
+      setPlotMultiFilterOpen(root, !root?.classList.contains("is-open"));
+      return;
+    }
+    const clearButton = event.target.closest("[data-plot-filter-clear]");
+    if (clearButton) {
+      clearPlotMultiFilter(clearButton.dataset.plotFilterClear || "");
+      return;
+    }
+    if (!event.target.closest(".plot-multi-filter")) closePlotMultiFilters();
+  });
+
+  document.addEventListener("change", (event) => {
+    const option = event.target.closest("[data-plot-filter-option]");
+    if (!option) return;
+    setPlotMultiFilterValue(option.dataset.plotFilterOption || "", option.value, option.checked);
+  });
+
+  document.addEventListener("input", (event) => {
+    const search = event.target.closest("[data-plot-filter-search]");
+    if (!search) return;
+    const root = search.closest(".plot-multi-filter");
+    const query = normalizeWhitespace(search.value).toLocaleLowerCase("id-ID");
+    root?.querySelectorAll(".plot-multi-filter-option").forEach((row) => {
+      row.hidden = Boolean(query) && !String(row.dataset.filterOptionLabel || "").includes(query);
+    });
+  });
+
   $("#resetPlotFilterButton").addEventListener("click", () => {
-    filters.plot = { query: "", year: "", month: "", unit: "", gfx: "", airing: "", page: 1, perPage: 20 };
+    filters.plot = { query: "", year: "", months: [], programs: [], units: [], gfx: [], airing: [], page: 1, perPage: 20 };
     $("#plotSearchInput").value = "";
+    closePlotMultiFilters();
     populateSelects();
     renderPlotings();
   });
@@ -5316,10 +5790,11 @@ function bindEvents() {
     populateSelects();
     renderBatches();
   });
-  $("#fullTimelineYearSelect").addEventListener("change", (event) => { filters.full.year = event.target.value; renderFullTimeline(); });
-  $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; renderFullTimeline(); });
-  $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; renderFullTimeline(); });
+  $("#fullTimelineYearSelect").addEventListener("change", (event) => { filters.full.year = event.target.value; populateSelects(); renderFullTimeline(); });
+  $("#fullTimelineMonthSelect").addEventListener("change", (event) => { filters.full.month = event.target.value; populateSelects(); renderFullTimeline(); });
+  $("#fullTimelineUnitSelect").addEventListener("change", (event) => { filters.full.unit = event.target.value; populateSelects(); renderFullTimeline(); });
   bindBrandSearchFilter("#fullTimelineBrandSelect", "full");
+  $("#fullTimelineProgramSelect").addEventListener("change", (event) => { filters.full.program = event.target.value; renderFullTimeline(); });
   $("#fullTimelineResetButton")?.addEventListener("click", resetFullTimelineFilters);
   $("#snapshotBrandDetailButton").addEventListener("click", snapshotBrandDetailTable);
   bindBrandSearchFilter("#brandSelect", "brand");
@@ -5329,9 +5804,9 @@ function bindEvents() {
   $("#brandUnitSelect").addEventListener("change", (event) => { filters.brand.unit = event.target.value; populateSelects(); renderBrand(); });
   $("#brandProgramSelect").addEventListener("change", (event) => { filters.brand.program = event.target.value; renderBrand(); });
   $("#brandFormatSelect").addEventListener("change", (event) => { filters.brand.format = event.target.value; renderBrand(); });
-  $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
-  $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
-  $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; mobilePicReportState.detailLimit = 8; renderPicReport(); });
+  $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; resetPicReportPagination(); renderPicReport(); });
+  $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; resetPicReportPagination(); renderPicReport(); });
+  $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; resetPicReportPagination(); renderPicReport(); });
   $("#auditSearchInput")?.addEventListener("input", (event) => { filters.audit.query = event.target.value; renderAuditLog(); });
   $("#auditActorFilter")?.addEventListener("change", (event) => { filters.audit.actor = event.target.value; renderAuditLog(); });
   $("#auditActionFilter")?.addEventListener("change", (event) => { filters.audit.action = event.target.value; renderAuditLog(); });
@@ -5340,17 +5815,11 @@ function bindEvents() {
     if ($("#auditSearchInput")) $("#auditSearchInput").value = "";
     renderAuditLog();
   });
-  $("#masterTypeInput").addEventListener("change", (event) => { $("#masterValueInput").placeholder = MASTER_META[event.target.value].placeholder; });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && $("#profileModalBackdrop")?.classList.contains("open")) {
-      closeProfileModal();
-      return;
-    }
-    if (event.key === "Escape" && teamChatState.panelOpen && !document.body.classList.contains("team-reminder-modal-open")) {
-      setFloatingTeamChatOpen(false);
-    }
+  $("#masterTypeInput").addEventListener("change", (event) => {
+    const meta = MASTER_META[event.target.value];
+    if ($("#masterValueInput") && meta) $("#masterValueInput").placeholder = meta.placeholder;
   });
+  $("#plotFormatInput")?.addEventListener("change", syncBillboardPicFieldVisibility);
 
   document.addEventListener("click", (event) => {
     const profileTab = event.target.closest("[data-profile-tab]");
@@ -5453,14 +5922,27 @@ function bindEvents() {
       }
       return;
     }
-    const mobileReportMore = event.target.closest("[data-mobile-report-more]");
-    if (mobileReportMore) {
-      mobilePicReportState.detailLimit += 8;
-      renderPicReport();
+    const picDetailPage = event.target.closest("[data-pic-detail-page]");
+    if (picDetailPage && !picDetailPage.disabled) {
+      const nextPage = Number(picDetailPage.dataset.picDetailPage);
+      if (Number.isFinite(nextPage)) {
+        picReportPaginationState.detailPage = nextPage;
+        renderPicReport();
+      }
+      return;
+    }
+    const picScopePage = event.target.closest("[data-pic-scope-page]");
+    if (picScopePage && !picScopePage.disabled) {
+      const scopeKey = picScopePage.dataset.picScopePage;
+      const nextPage = Number(picScopePage.dataset.page);
+      if (scopeKey && Object.prototype.hasOwnProperty.call(picReportPaginationState.scopePages, scopeKey) && Number.isFinite(nextPage)) {
+        picReportPaginationState.scopePages[scopeKey] = nextPage;
+        renderPicReport();
+      }
       return;
     }
     const selectPic = event.target.closest("[data-select-pic]");
-    if (selectPic) { filters.pic.pic = decodeURIComponent(selectPic.dataset.selectPic || ""); mobilePicReportState.detailLimit = 8; populateSelects(); renderPicReport(); return; }
+    if (selectPic) { filters.pic.pic = decodeURIComponent(selectPic.dataset.selectPic || ""); resetPicReportPagination(); populateSelects(); renderPicReport(); return; }
     const removeSchedule = event.target.closest("[data-remove-schedule]");
     if (removeSchedule) {
       const rows = $$("#scheduleRows .schedule-row");
@@ -5481,7 +5963,29 @@ function bindEvents() {
   $("#plotModalBackdrop").addEventListener("click", () => {});
   $("#scheduleModalBackdrop").addEventListener("click", () => {});
   $("#legacyImportModalBackdrop").addEventListener("click", () => {});
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closePlotModal(); closeScheduleModal(); closeLegacyImportModal(); setMobileMenuOpen(false); } });
+  document.addEventListener("keydown", (event) => {
+    const openModal = topOpenModalBackdrop();
+    if (event.key === "Tab" && openModal) {
+      trapFocusWithinModal(event, openModal);
+      return;
+    }
+    if (event.key !== "Escape") return;
+    if (openModal) {
+      event.preventDefault();
+      closeModalByBackdrop(openModal);
+      return;
+    }
+    const openPlotFilter = document.querySelector(".plot-multi-filter.is-open");
+    if (openPlotFilter) {
+      setPlotMultiFilterOpen(openPlotFilter, false);
+      return;
+    }
+    if (teamChatState.panelOpen && !document.body.classList.contains("team-reminder-modal-open")) {
+      setFloatingTeamChatOpen(false);
+      return;
+    }
+    setMobileMenuOpen(false);
+  });
 }
 
 function watchOperationalDate() {

@@ -2295,7 +2295,7 @@ tbody tr:last-child td { border-bottom: 0; }
   gap: 12px;
 }
 #fullTimelineView .brand-filter-controls {
-  grid-template-columns: minmax(140px, .7fr) minmax(150px, .8fr) minmax(180px, 1fr) minmax(260px, 1.4fr) minmax(140px, auto);
+  grid-template-columns: minmax(130px, .65fr) minmax(140px, .7fr) minmax(160px, .85fr) minmax(190px, 1fr) minmax(240px, 1.3fr) minmax(130px, auto);
 }
 #brandView .brand-filter-controls {
   grid-template-columns: minmax(260px, 1.25fr) minmax(120px, .7fr) minmax(140px, .7fr) minmax(160px, .85fr) minmax(190px, 1fr) minmax(190px, 1fr) minmax(140px, auto);
@@ -10652,4 +10652,334 @@ html[data-theme="dark"] .floating-team-chat-conversation .team-chat-reminder-mes
   .team-chat-group-avatars { display: none; }
   .floating-team-chat-title-row { gap: 6px; }
   .floating-team-chat-kicker strong { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+
+/* v82: PIC pemasangan billboard */
+.form-field-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+/* v127: report clarity, managed PIC source, and dialog accessibility hardening */
+.pic-report-assignment-note {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  color: var(--ink-soft);
+  background: var(--surface-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.pic-report-assignment-note strong { color: var(--ink); }
+.summary-tile--managed {
+  border-style: dashed;
+  background: #eef6ff;
+}
+.master-hint strong { color: var(--ink); }
+.modal[role="dialog"]:focus { outline: none; }
+.modal[role="dialog"] :is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid rgba(7, 90, 168, .30);
+  outline-offset: 2px;
+}
+@media (max-width: 760px) {
+  .pic-report-assignment-note { margin-top: 10px; }
+}
+
+
+/* v128: Report PIC pagination and compact long lists */
+#picReportView .pic-report-pagination-host {
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line-soft);
+}
+#picReportView .pic-report-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+#picReportView .pic-scope-pagination {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line-soft);
+}
+#picReportView .pic-scope-pagination .pic-report-pagination {
+  align-items: flex-start;
+}
+#picReportView .pic-report-pagination .pagination-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+#picReportView .pic-report-pagination .pagination-pages {
+  flex-wrap: wrap;
+}
+#picReportView .pic-report-pagination .pagination-summary {
+  flex: 0 1 auto;
+}
+
+@media (max-width: 760px) {
+  #picReportView .pic-report-pagination-host {
+    padding: 10px 10px 12px;
+  }
+  #picReportView .pic-report-pagination,
+  #picReportView .pic-scope-pagination .pic-report-pagination {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 9px;
+  }
+  #picReportView .pic-report-pagination .pagination-summary {
+    font-size: 10px;
+  }
+  #picReportView .pic-report-pagination .pagination-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    gap: 6px;
+  }
+  #picReportView .pic-report-pagination .pagination-pages {
+    display: flex;
+    min-width: 0;
+    overflow-x: auto;
+    justify-content: center;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+  }
+  #picReportView .pic-report-pagination .pagination-nav,
+  #picReportView .pic-report-pagination .pagination-page {
+    min-height: 32px;
+    font-size: 10px;
+  }
+  #picReportView .pic-report-pagination .pagination-nav {
+    padding: 0 9px;
+  }
+}
+
+
+/* v129: advanced multi-select filters for Master Ploting only */
+#plotingsView .toolbar-plotings {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+#plotingsView .toolbar-plotings > #plotYearFilter {
+  flex: 0 0 150px;
+  min-width: 150px;
+}
+.plot-multi-filter {
+  position: relative;
+  flex: 0 0 170px;
+  min-width: 170px;
+}
+.plot-multi-filter--program { flex-basis: 220px; min-width: 220px; }
+.plot-multi-filter--status { flex-basis: 190px; min-width: 190px; }
+.plot-multi-filter-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.plot-multi-filter-toggle > span {
+  grid-column: 1;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: .65px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.plot-multi-filter-toggle > strong {
+  grid-column: 1;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plot-multi-filter-toggle > b {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform .16s ease;
+}
+.plot-multi-filter.is-open .plot-multi-filter-toggle,
+.plot-multi-filter.has-selection .plot-multi-filter-toggle {
+  border-color: #78a9d4;
+  background: #f4f9ff;
+}
+.plot-multi-filter.is-open .plot-multi-filter-toggle {
+  box-shadow: 0 0 0 4px rgba(46,126,188,.12);
+}
+.plot-multi-filter.is-open .plot-multi-filter-toggle > b { transform: rotate(180deg); }
+.plot-multi-filter.has-selection .plot-multi-filter-toggle > strong { color: var(--green); }
+.plot-multi-filter-menu {
+  position: fixed;
+  z-index: 150;
+  width: min(320px, calc(100vw - 24px));
+  max-height: 410px;
+  overflow: hidden;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 24px 54px rgba(25,45,72,.20);
+  backdrop-filter: blur(18px);
+}
+.plot-multi-filter.is-open .plot-multi-filter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+}
+.plot-multi-filter-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 4px 9px;
+}
+.plot-multi-filter-menu-head > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.plot-multi-filter-menu-head > button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--green-2);
+  background: #eaf4ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+.plot-multi-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  margin-bottom: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+.plot-multi-filter-search > span { color: var(--muted); }
+.plot-multi-filter-search input {
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+.plot-multi-filter-options {
+  display: grid;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.plot-multi-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.plot-multi-filter-option:hover { background: #edf6ff; }
+.plot-multi-filter-option input {
+  flex: 0 0 auto;
+  width: 17px;
+  min-height: 17px;
+  margin: 0;
+  accent-color: var(--green-2);
+}
+.plot-multi-filter-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plot-multi-filter-empty {
+  margin: 0;
+  padding: 18px 10px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+html[data-theme="dark"] .plot-multi-filter-toggle {
+  color: var(--ink);
+  border-color: rgba(138,188,232,.20);
+  background: rgba(16,40,70,.88);
+}
+html[data-theme="dark"] .plot-multi-filter.is-open .plot-multi-filter-toggle,
+html[data-theme="dark"] .plot-multi-filter.has-selection .plot-multi-filter-toggle {
+  border-color: rgba(120,197,244,.46);
+  background: #173a62;
+}
+html[data-theme="dark"] .plot-multi-filter-toggle > span,
+html[data-theme="dark"] .plot-multi-filter-toggle > b { color: #90a7c3; }
+html[data-theme="dark"] .plot-multi-filter-toggle > strong,
+html[data-theme="dark"] .plot-multi-filter-menu-head > strong { color: #edf6ff; }
+html[data-theme="dark"] .plot-multi-filter.has-selection .plot-multi-filter-toggle > strong { color: #8fd4ff; }
+html[data-theme="dark"] .plot-multi-filter-menu {
+  border-color: rgba(138,188,232,.18);
+  background: rgba(12,29,53,.98);
+  box-shadow: 0 24px 54px rgba(2,9,18,.44);
+}
+html[data-theme="dark"] .plot-multi-filter-menu-head > button {
+  color: #8fd4ff;
+  background: rgba(57,168,234,.12);
+}
+html[data-theme="dark"] .plot-multi-filter-search {
+  border-color: rgba(138,188,232,.18);
+  background: rgba(16,40,70,.78);
+}
+html[data-theme="dark"] .plot-multi-filter-option { color: #d7e5f3; }
+html[data-theme="dark"] .plot-multi-filter-option:hover { background: #234c76; }
+
+@media (max-width: 760px) {
+  #plotingsView .toolbar-plotings > #plotYearFilter { min-width: 140px; flex-basis: 140px; }
+  .plot-multi-filter { min-width: 158px; flex-basis: 158px; }
+  .plot-multi-filter--program { min-width: 190px; flex-basis: 190px; }
+  .plot-multi-filter--status { min-width: 175px; flex-basis: 175px; }
+  .plot-multi-filter-menu { width: min(300px, calc(100vw - 20px)); }
+}
+
+/* Keep advanced filter popovers visible instead of clipping inside the sticky toolbar. */
+#plotingsView .toolbar-plotings {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+#plotingsView .toolbar-plotings .search-box {
+  flex: 1 1 320px;
+}
+.plot-multi-filter.is-open { z-index: 151; }
+@media (max-width: 760px) {
+  #plotingsView .toolbar-plotings { flex-wrap: wrap; overflow: visible; }
+  #plotingsView .toolbar-plotings .search-box { flex: 1 1 100%; min-width: 100%; }
 }

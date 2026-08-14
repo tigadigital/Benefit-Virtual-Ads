@@ -32,8 +32,8 @@
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js" rel="modulepreload"/>
 <link crossorigin="" href="https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js" rel="modulepreload"/>
-<link href="app.js?v=126" rel="modulepreload"/>
-<link href="style.css?v=125" rel="stylesheet"/>
+<link href="app.js?v=131" rel="modulepreload"/>
+<link href="style.css?v=129" rel="stylesheet"/>
 </head>
 <body data-active-view="dashboard">
 <section aria-labelledby="authGateTitle" aria-live="polite" class="auth-gate" id="authGate">
@@ -235,10 +235,58 @@
 <div class="toolbar panel toolbar-plotings">
 <div class="search-box"><span>⌕</span><input id="plotSearchInput" placeholder="Cari brand, PT, program, versi VA, atau sales..." type="search"/></div>
 <select aria-label="Filter tahun penayangan" id="plotYearFilter"></select>
-<select aria-label="Filter bulan penayangan" id="plotMonthFilter"></select>
-<select aria-label="Filter unit on air" id="plotUnitFilter"></select>
-<select aria-label="Filter materi GFX" id="plotGfxFilter"></select>
-<select aria-label="Filter status tayang" id="plotAiringFilter"></select>
+
+<div class="plot-multi-filter" data-plot-filter-key="months">
+<button aria-expanded="false" aria-haspopup="true" class="plot-multi-filter-toggle" type="button">
+<span>Bulan</span><strong data-plot-filter-label>Semua</strong><b aria-hidden="true">⌄</b>
+</button>
+<div class="plot-multi-filter-menu" hidden>
+<div class="plot-multi-filter-menu-head"><strong>Pilih bulan</strong><button data-plot-filter-clear="months" type="button">Bersihkan</button></div>
+<div class="plot-multi-filter-options" id="plotMonthFilterOptions"></div>
+</div>
+</div>
+
+<div class="plot-multi-filter plot-multi-filter--program" data-plot-filter-key="programs">
+<button aria-expanded="false" aria-haspopup="true" class="plot-multi-filter-toggle" type="button">
+<span>Program</span><strong data-plot-filter-label>Semua</strong><b aria-hidden="true">⌄</b>
+</button>
+<div class="plot-multi-filter-menu" hidden>
+<div class="plot-multi-filter-menu-head"><strong>Pilih program</strong><button data-plot-filter-clear="programs" type="button">Bersihkan</button></div>
+<label class="plot-multi-filter-search"><span>⌕</span><input autocomplete="off" data-plot-filter-search="programs" placeholder="Cari program..." type="search"/></label>
+<div class="plot-multi-filter-options" id="plotProgramFilterOptions"></div>
+</div>
+</div>
+
+<div class="plot-multi-filter" data-plot-filter-key="units">
+<button aria-expanded="false" aria-haspopup="true" class="plot-multi-filter-toggle" type="button">
+<span>Unit</span><strong data-plot-filter-label>Semua</strong><b aria-hidden="true">⌄</b>
+</button>
+<div class="plot-multi-filter-menu" hidden>
+<div class="plot-multi-filter-menu-head"><strong>Pilih unit</strong><button data-plot-filter-clear="units" type="button">Bersihkan</button></div>
+<div class="plot-multi-filter-options" id="plotUnitFilterOptions"></div>
+</div>
+</div>
+
+<div class="plot-multi-filter" data-plot-filter-key="gfx">
+<button aria-expanded="false" aria-haspopup="true" class="plot-multi-filter-toggle" type="button">
+<span>GFX</span><strong data-plot-filter-label>Semua</strong><b aria-hidden="true">⌄</b>
+</button>
+<div class="plot-multi-filter-menu" hidden>
+<div class="plot-multi-filter-menu-head"><strong>Pilih materi GFX</strong><button data-plot-filter-clear="gfx" type="button">Bersihkan</button></div>
+<div class="plot-multi-filter-options" id="plotGfxFilterOptions"></div>
+</div>
+</div>
+
+<div class="plot-multi-filter plot-multi-filter--status" data-plot-filter-key="airing">
+<button aria-expanded="false" aria-haspopup="true" class="plot-multi-filter-toggle" type="button">
+<span>Status</span><strong data-plot-filter-label>Semua</strong><b aria-hidden="true">⌄</b>
+</button>
+<div class="plot-multi-filter-menu" hidden>
+<div class="plot-multi-filter-menu-head"><strong>Pilih status tayang</strong><button data-plot-filter-clear="airing" type="button">Bersihkan</button></div>
+<div class="plot-multi-filter-options" id="plotAiringFilterOptions"></div>
+</div>
+</div>
+
 <button class="secondary-button" id="resetPlotFilterButton" type="button">Reset</button>
 </div>
 <article class="panel data-panel">
@@ -347,6 +395,7 @@
 <label>Tahun<select id="fullTimelineYearSelect"></select></label>
 <label>Bulan<select id="fullTimelineMonthSelect"></select></label>
 <label>Unit On Air<select id="fullTimelineUnitSelect"></select></label>
+<label>Program<select id="fullTimelineProgramSelect"></select></label>
 <label class="brand-search-filter">Brand
                 <input aria-label="Cari atau pilih brand untuk Kalender Full" autocomplete="off" class="brand-search-input" id="fullTimelineBrandSelect" list="fullTimelineBrandOptions" placeholder="Cari atau pilih brand" type="search"/>
 <datalist id="fullTimelineBrandOptions"></datalist>
@@ -451,10 +500,11 @@
 <div class="panel-heading"><div><p class="section-label">RINGKASAN TIM</p><h3>Spot per PIC</h3></div><span class="muted-caption" id="picOverviewCaption"></span></div>
 <div class="table-wrap compact-table-wrap">
 <table class="data-table pic-overview-table">
-<thead><tr><th>PIC</th><th>Spot Tayang</th><th>Jadwal</th><th>Total Spot</th><th>Brand</th><th>Program</th><th></th></tr></thead>
+<thead><tr><th>PIC</th><th>Spot Tayang (Assignment)</th><th>Jadwal (Assignment)</th><th>Total Spot (Assignment)</th><th>Brand</th><th>Program</th><th></th></tr></thead>
 <tbody id="picOverviewBody"></tbody>
 </table>
 </div>
+<p class="pic-report-assignment-note" id="picAssignmentNote"><strong>Catatan perhitungan:</strong> beban PIC dapat overlap ketika PIC Ploting dan PIC Billboard berbeda.</p>
 </article>
 </div>
 <button class="mobile-report-section-toggle" data-mobile-report-toggle="scope" type="button" aria-expanded="false"><span><strong>Cakupan PIC</strong><small>Brand, program, dan unit teratas</small></span><b aria-hidden="true">⌄</b></button>
@@ -475,7 +525,7 @@
 <tbody id="picDetailBody"></tbody>
 </table>
 </div>
-<div class="mobile-report-more" id="mobilePicDetailMore"></div>
+<div class="pic-report-pagination-host" id="picDetailPagination"></div>
 </article>
 </div>
 </section>
@@ -495,12 +545,11 @@
 <option value="formats">Format VA</option>
 <option value="durations">Durasi</option>
 <option value="gfx">Materi GFX</option>
-<option value="pics">PIC Ploting</option>
 </select></label>
 <label>Nilai baru<input id="masterValueInput" maxlength="100" placeholder="Contoh: POD 8" required=""/></label>
 <button class="primary-button" type="submit">+ Simpan ke Master</button>
 </form>
-<p class="master-hint">Data yang sudah dipakai tidak dapat dihapus.</p>
+<p class="master-hint"><strong>PIC dikelola otomatis dari Kelola Akun.</strong> Master Data hanya untuk pilihan operasional lain. Data yang sudah dipakai tidak dapat dihapus.</p>
 </article>
 <article class="panel master-summary-panel">
 <p class="section-label">RINGKASAN</p>
@@ -657,11 +706,12 @@
 </footer>
 </div>
 <section aria-hidden="true" class="modal-backdrop" id="plotModalBackdrop">
-<form class="modal" id="plotForm" novalidate="">
+<form aria-describedby="plotModalDescription" aria-labelledby="plotModalTitle" aria-modal="true" class="modal" id="plotForm" novalidate="" role="dialog" tabindex="-1">
 <div class="modal-header">
 <div><p class="section-label">MASTER PLOTING VA</p><h3 id="plotModalTitle">Tambah Ploting Benefit</h3></div>
 <button aria-label="Tutup" class="icon-button close-modal" data-close-modal="" type="button">×</button>
 </div>
+<p class="visually-hidden" id="plotModalDescription">Form untuk menambah atau mengubah informasi benefit dan seluruh jadwal tayangnya.</p>
 <input id="plotBatchIdInput" type="hidden"/>
 <div class="form-section">
 <div class="form-section-title"><span>1</span><div><strong>Informasi benefit</strong><small>Isi detail utama.</small></div></div>
@@ -675,6 +725,7 @@
 <label>POD<select id="plotPodInput" required=""></select></label>
 <label>Versi VA<input id="plotVersionInput" maxlength="140" placeholder="Nama atau versi materi VA" required=""/></label>
 <label>Format VA<select id="plotFormatInput" required=""></select></label>
+<label hidden="" id="plotBillboardPicField">PIC Pemasangan Billboard<select id="plotBillboardPicInput"></select><small class="form-field-note">Wajib untuk format VA 2D Billboard dan 2D Billboard + RT.</small></label>
 <label>Durasi<select id="plotDurationInput" required=""></select></label>
 <label>Materi GFX<select id="plotGfxInput" required=""></select></label>
 <label>Segmentasi<input id="plotSegmentationInput" maxlength="80" placeholder="Contoh: Prime time"/></label>
@@ -706,11 +757,12 @@
 </form>
 </section>
 <section aria-hidden="true" class="modal-backdrop" id="scheduleModalBackdrop">
-<form class="modal schedule-edit-modal" id="scheduleEditForm" novalidate="">
+<form aria-describedby="scheduleModalDescription" aria-labelledby="scheduleModalTitle" aria-modal="true" class="modal schedule-edit-modal" id="scheduleEditForm" novalidate="" role="dialog" tabindex="-1">
 <div class="modal-header">
-<div><p class="section-label">UPDATE PER JADWAL</p><h3>Atur Jadwal Tayang</h3></div>
+<div><p class="section-label">UPDATE PER JADWAL</p><h3 id="scheduleModalTitle">Atur Jadwal Tayang</h3></div>
 <button aria-label="Tutup" class="icon-button close-modal" data-close-schedule-modal="" type="button">×</button>
 </div>
+<p class="visually-hidden" id="scheduleModalDescription">Form untuk mengubah tanggal, jumlah spot, status, catatan, atau melakukan sliding spot pada satu jadwal.</p>
 <input id="scheduleEditIdInput" type="hidden"/>
 <div class="schedule-edit-context" id="scheduleEditContext"></div>
 <div class="form-grid schedule-edit-grid">
@@ -744,7 +796,7 @@
 </form>
 </section>
 <section aria-hidden="true" class="modal-backdrop" id="legacyImportModalBackdrop">
-<div aria-labelledby="legacyImportTitle" aria-modal="true" class="modal legacy-import-modal" role="dialog">
+<div aria-labelledby="legacyImportTitle" aria-modal="true" class="modal legacy-import-modal" role="dialog" tabindex="-1">
 <div class="modal-header">
 <div><p class="section-label">MIGRASI DATA</p><h3 id="legacyImportTitle">Import Data Lama</h3></div>
 <button aria-label="Tutup" class="icon-button close-modal" data-close-legacy-import="" type="button">×</button>
@@ -776,7 +828,7 @@
 </div>
 </section>
 <section aria-hidden="true" class="modal-backdrop profile-modal-backdrop" id="profileModalBackdrop">
-<div aria-labelledby="profileModalTitle" aria-modal="true" class="modal profile-modal" role="dialog">
+<div aria-labelledby="profileModalTitle" aria-modal="true" class="modal profile-modal" role="dialog" tabindex="-1">
 <div class="modal-header profile-modal-header">
 <div><p class="section-label">PENGATURAN AKUN</p><h3 id="profileModalTitle">Profil dan akun tim</h3></div>
 <button aria-label="Tutup pengaturan profil" class="icon-button close-modal" data-close-profile-modal type="button">×</button>
@@ -863,6 +915,6 @@
 </defs>
 </svg>
 <script defer="" src="update-check.js?v=55"></script>
-<script src="app.js?v=126" type="module"></script>
+<script src="app.js?v=131" type="module"></script>
 </body>
 </html>
