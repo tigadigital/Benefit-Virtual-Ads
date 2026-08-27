@@ -135,7 +135,7 @@ const MASTER_META = {
 const defaultMasters = {
   advertisers: [],
   pods: ["POD 1", "POD 2", "POD 3", "POD 4", "POD 5", "POD 6", "POD 7"],
-  units: ["RCTI", "MNCTV", "GTV"],
+  units: ["RCTI", "RCTI+", "MNCTV", "GTV"],
   formats: ["FREEZE SCENE", "VA 2D + RT", "SUPERIMPOSE", "SQUEEZE FRAME", "ADLIB", "OTHER"],
   durations: ["5 detik", "10 detik", "10 + 10 detik", "15 detik", "20 detik", "30 detik"],
   gfx: ["GFX Lama", "GFX Baru", "Tidak perlu GFX"],
@@ -145,6 +145,7 @@ const defaultMasters = {
 // PIC tidak lagi dikelola sebagai master manual. Sumber pilihan PIC baru adalah
 // direktori teamAccounts aktif; key pics tetap dipertahankan untuk kompatibilitas data lama.
 const EDITABLE_MASTER_KEYS = Object.freeze(["advertisers", "pods", "units", "formats", "durations", "gfx"]);
+const REQUIRED_UNIT_OPTIONS = Object.freeze(["RCTI+"]);
 
 const MODAL_FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -442,6 +443,7 @@ function normalizeMasters(rawMasters, plotings) {
     const field = MASTER_META[key].field;
     masters[key] = sortText(unique([
       ...supplied,
+      ...(key === "units" ? REQUIRED_UNIT_OPTIONS : []),
       ...plotings.map((plot) => plot[field])
     ]));
   });
@@ -698,6 +700,7 @@ function plotSpotMarkup(plot, extraClass = "") {
 
 const UNIT_LOGOS = {
   RCTI: "assets/rcti.webp",
+  "RCTI+": "assets/RCTI_Plus.svg",
   MNCTV: "assets/mnctv.webp",
   GTV: "assets/gtv.webp"
 };
@@ -3260,8 +3263,97 @@ function buildMnctvWaMessage(group) {
   ].join("\n");
 }
 
+function isRctiWaGroup(group) {
+  return normalizedWaUnit(group?.unit) === "RCTI";
+}
+
+function isBigMoviesWaGroup(group) {
+  return normalizeWhitespace(group?.program).toLocaleUpperCase("id-ID") === "BIG MOVIES";
+}
+
+function buildBigMoviesWaMessage(group) {
+  const items = getWaSpotItems(group);
+  if (!group || !waAssignmentsComplete(items)) return "";
+
+  const segmentationNote = unique((group.plots || [])
+    .map((plot) => normalizeWhitespace(plot.segmentation))
+    .filter(Boolean))
+    .join(" / ");
+  const summaryLines = getWaSummaryItems(group).map(({ plot, spot }) => (
+    `- ${spot} Spot ${formatWaFormat(plot.format)} ${normalizeWhitespace(plot.brand || "-").toLocaleUpperCase("id-ID")}`
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  ));
+  const segmentBlocks = WA_SEGMENT_OPTIONS.map((segment) => {
+    const segmentItems = items.filter((item) => Number(waGeneratorState.assignments[item.key]) === segment);
+    if (!segmentItems.length) return "";
+    return [
+      `*SEGMENT ${segment}*`,
+      "TC",
+      "=========================",
+      "FS Background Still Blur 80%"
+    ].join("\n");
+  }).filter(Boolean);
+
+  return [
+    "PLAN TAYANG VIRTUAL ADS",
+    formatWaDate(state.operationDate),
+    "",
+    `*${group.program.toLocaleUpperCase("id-ID")}*`,
+    "",
+    `(Segmentasi Range ${segmentationNote || "-"})`,
+    ...summaryLines,
+    "",
+    segmentBlocks.join("\n\n"),
+    "",
+    "Terima kasih 🙏"
+  ].join("\n");
+}
+
+function buildRctiWaMessage(group) {
+  const items = getWaSpotItems(group);
+  if (!group || !waAssignmentsComplete(items)) return "";
+
+  const summaryLines = getWaSummaryItems(group).map(({ plot, spot }) => waSpotLine(plot, spot));
+  const segmentBlocks = WA_SEGMENT_OPTIONS.map((segment) => {
+    const segmentItems = items.filter((item) => Number(waGeneratorState.assignments[item.key]) === segment);
+    if (!segmentItems.length) return "";
+    const details = segmentItems.map((item) => {
+      const note = waSegmentNote(item.plot.format);
+      return [waSpotLine(item.plot), note, "TC :"].filter(Boolean).join("\n");
+    }).join("\n\n");
+    return `*│ SEGMENT ${segment}*\n\n${details}`;
+  }).filter(Boolean);
+
+  return [
+    "PLAN & KOMPOSISI VIRTUAL ADS :",
+    "",
+    `*${group.program.toLocaleUpperCase("id-ID")}*`,
+    formatWaDate(state.operationDate),
+    "====================",
+    "",
+    ...summaryLines,
+    "",
+    `Total : ${items.length} Spot`,
+    "",
+    "====================",
+    "",
+    segmentBlocks.join("\n\n"),
+    "====================",
+    "",
+    "Note :",
+    "",
+    "• FS background still scene blur 80%",
+    "• Mohon dibantu video preview dan timecode setelah dipasang.",
+    "",
+    "Terima kasih 🙏"
+  ].join("\n");
+}
+
 function buildWaMessage(group) {
   if (group?.template === "mnctv") return buildMnctvWaMessage(group);
+  if (isBigMoviesWaGroup(group)) return buildBigMoviesWaMessage(group);
+  if (isRctiWaGroup(group)) return buildRctiWaMessage(group);
 
   const items = getWaSpotItems(group);
   if (!group || !waAssignmentsComplete(items)) return "";
@@ -3899,7 +3991,13 @@ function renderMasters() {
   const managedEntries = EDITABLE_MASTER_KEYS.map((key) => [key, MASTER_META[key]]);
   const summary = `${managedEntries.map(([key, meta]) => `<div class="summary-tile"><strong>${state.masters[key].length}</strong><span>${escapeHTML(meta.label)}</span></div>`).join("")}<div class="summary-tile summary-tile--managed"><strong>${activePicAccountNames().length}</strong><span>PIC dari akun aktif</span></div>`;
   $("#masterSummary").innerHTML = summary;
-  $("#masterGrid").innerHTML = managedEntries.map(([key, meta]) => `<article class="panel master-card"><div class="master-card-head"><div><p class="section-label">MASTER</p><h4>${escapeHTML(meta.label)}</h4></div><span>${state.masters[key].length} item</span></div><div class="master-list">${state.masters[key].map((value) => `<div class="master-list-item"><span>${escapeHTML(value)}</span><button class="master-delete" data-master-delete="${key}" data-master-value="${encodeURIComponent(value)}" type="button">Hapus</button></div>`).join("")}</div></article>`).join("");
+  $("#masterGrid").innerHTML = managedEntries.map(([key, meta]) => `<article class="panel master-card"><div class="master-card-head"><div><p class="section-label">MASTER</p><h4>${escapeHTML(meta.label)}</h4></div><span>${state.masters[key].length} item</span></div><div class="master-list">${state.masters[key].map((value) => {
+    const requiredUnit = key === "units" && REQUIRED_UNIT_OPTIONS.includes(value);
+    const action = requiredUnit
+      ? `<span class="muted-caption">Bawaan</span>`
+      : `<button class="master-delete" data-master-delete="${key}" data-master-value="${encodeURIComponent(value)}" type="button">Hapus</button>`;
+    return `<div class="master-list-item"><span>${escapeHTML(value)}</span>${action}</div>`;
+  }).join("")}</div></article>`).join("");
 }
 
 function renderActiveView() {
