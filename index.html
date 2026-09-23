@@ -114,7 +114,9 @@
           <div class="nav-submenu" hidden>
             <span class="nav-submenu-title">OUTPUT &amp; REPORT</span>
             <button class="nav-item nav-subitem" data-view="wagenerator" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Generator WhatsApp</em></button>
-            <button class="nav-item nav-subitem" data-view="picreport" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Report</em></button>
+            <button class="nav-item nav-subitem" data-view="picreport" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Report PIC</em></button>
+            <button class="nav-item nav-subitem" data-view="weeklyreport" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Report Mingguan</em></button>
+            <button class="nav-item nav-subitem" data-view="monthlyreport" type="button"><span class="nav-dot" aria-hidden="true"></span><em>Report Bulanan</em></button>
           </div>
         </div>
 
@@ -174,9 +176,16 @@
 <div class="dashboard-hero dashboard-hero--upgrade">
 <video class="dashboard-hero-video" src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260714_113715_c7e0daa0-8bdd-4486-a2da-040901f8f0ea.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
 <div class="dashboard-hero-scrim" aria-hidden="true"></div>
+<div class="dashboard-poster-float dashboard-poster-float-left" aria-hidden="true">
+  <img src="assets/dashboard-posters/cinta-ranjau.png" alt="" loading="lazy">
+  <img src="assets/dashboard-posters/terikat-janji.png" alt="" loading="lazy">
+</div>
+<div class="dashboard-poster-float dashboard-poster-float-right" aria-hidden="true">
+  <img src="assets/dashboard-posters/indonesian-idol-xiv.png" alt="" loading="lazy">
+  <img src="assets/dashboard-posters/family-100.png" alt="" loading="lazy">
+</div>
 <div class="hero-copy hero-greeting-block">
-<div class="hero-funding-badge"><span aria-hidden="true">VA</span><strong>Digital Ploting Workspace</strong></div>
-<p class="section-label hero-label" id="dashboardGreetingMeta">Tanggal operasional</p>
+<p class="section-label hero-label" id="dashboardGreetingMeta"></p>
 <h3 id="dashboardGreetingTitle">Selamat datang.</h3>
 <p class="hero-reminder-lead" id="dashboardReminderLead">Memuat ringkasan operasional hari ini.</p>
 </div>
@@ -195,32 +204,28 @@
 <div aria-label="Pengingat operasional" class="hero-reminder-list" id="dashboardReminderList"></div>
 </div>
 <div class="kpi-grid" id="kpiGrid"></div>
-<div class="dashboard-grid">
+<div class="dashboard-grid dashboard-schedule-full">
 <article class="panel">
 <div class="panel-heading">
-<div><p class="section-label">PIVOT MASTER OTOMATIS</p><h3>Jadwal pada tanggal operasional</h3></div>
+<div><p class="section-label">PIVOT MASTER OTOMATIS</p><h3>Jadwal Hari Ini</h3></div>
 <button class="text-button" data-go-view="daily" type="button">Buka timeline →</button>
 </div>
 <div class="table-wrap compact-table-wrap">
 <table class="compact-table dashboard-today-table">
-<thead><tr><th>Unit</th><th>Program / Brand</th><th>Format</th><th>Spot</th><th>Status</th></tr></thead>
+<thead><tr><th>Unit</th><th>Program / Brand</th><th>Format VA</th><th>Versi VA</th><th>Spot</th><th>Status</th></tr></thead>
 <tbody id="dashboardTodayBody"></tbody>
 </table>
 </div>
 </article>
-<article class="panel">
-<div class="panel-heading"><div><p class="section-label">PERLU DITINJAU</p><h3>Prioritas operasional</h3></div></div>
-<div class="attention-list" id="attentionList"></div>
-</article>
 </div>
-<div class="dashboard-grid lower-grid">
-<article class="panel">
-<div class="panel-heading"><div><p class="section-label">BATCH TERBARU</p><h3>Benefit yang terakhir diinput</h3></div><button class="text-button" data-go-view="batches" type="button">Lihat semua →</button></div>
-<div class="batch-list" id="recentBatchList"></div>
+<div class="dashboard-insights">
+<article class="panel dashboard-chart-panel">
+<div class="panel-heading"><div><p class="section-label">KINERJA MINGGUAN</p><h3>Grafik KPI penayangan</h3></div><span id="dashboardChartPeriod" class="dashboard-period"></span></div>
+<div id="dashboardKpiChart"></div>
 </article>
-<article class="panel">
-<div class="panel-heading"><div><p class="section-label">MINGGU INI</p><h3>Penayangan minggu ini</h3></div></div>
-<div class="upcoming-list" id="upcomingList"></div>
+<article class="panel dashboard-week-panel">
+<div class="panel-heading"><div><p class="section-label">AGENDA MINGGUAN</p><h3>Penayangan minggu ini</h3></div><button class="text-button" data-go-view="daily" type="button">Timeline →</button></div>
+<div id="dashboardWeekAgenda"></div>
 </article>
 </div>
 </section>
@@ -529,6 +534,20 @@
 <div class="pic-report-pagination-host" id="picDetailPagination"></div>
 </article>
 </div>
+</section>
+<section class="view management-report-view" data-view-panel="weeklyreport" id="weeklyReportView">
+<div class="section-intro panel timeline-header">
+<div class="section-intro-copy"><p class="section-label">MANAGEMENT CENTER</p><h3>Report Mingguan</h3><p>Monitoring performa benefit mingguan untuk internal management.</p></div>
+<div class="management-report-filter management-report-filter--compact"><label><span>PIC Ploting</span><select id="weeklyReportPicFilter"></select></label></div>
+</div>
+<div id="weeklyReportContent"></div>
+</section>
+<section class="view management-report-view" data-view-panel="monthlyreport" id="monthlyReportView">
+<div class="section-intro panel timeline-header">
+<div class="section-intro-copy"><p class="section-label">MANAGEMENT CENTER</p><h3>Report Bulanan</h3><p>Ringkasan performa benefit bulanan dan tren penayangan.</p></div>
+<div class="management-report-filter management-report-filter--compact"><label><span>PIC Ploting</span><select id="monthlyReportPicFilter"></select></label></div>
+</div>
+<div id="monthlyReportContent"></div>
 </section>
 <section class="view" data-view-panel="masters" id="mastersView">
 <div class="section-intro panel section-intro--static">
@@ -917,6 +936,7 @@
 </defs>
 </svg>
 <script defer="" src="update-check.js?v=55"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="app.js?v=132" type="module"></script>
 </body>
 </html>

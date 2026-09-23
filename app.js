@@ -296,6 +296,7 @@ function bindThemeEvents() {
 
 let state = loadState();
 let activeView = "dashboard";
+let managementCharts = {};
 let filters = {
   plot: { query: "", year: "", months: [], programs: [], units: [], gfx: [], airing: [], page: 1, perPage: 20 },
   batch: { query: "", year: "", month: "", unit: "", page: 1, perPage: 20 },
@@ -304,6 +305,7 @@ let filters = {
   pic: { pic: "", year: "", quarter: "" },
   audit: { query: "", actor: "", action: "" }
 };
+let managementReportFilters = { pic: "", year: "", month: "" };
 let toastSequence = 0;
 let unsubscribeMasters = null;
 let unsubscribeSchedules = null;
@@ -903,16 +905,16 @@ function renderDashboardGreeting(todayPlots, upcomingPlots, attentionPlots) {
   const mobileGreeting = window.matchMedia?.("(max-width: 760px)")?.matches;
   const greetingName = currentTeamDisplayName();
   const greetingPeriod = dashboardGreetingLabel();
-  greetingMeta.textContent = `Tanggal operasional — ${operationDateLabel}`;
+  greetingMeta.textContent = operationDateLabel;
   if (mobileGreeting) {
     greetingTitle.innerHTML = `<span class="mobile-greeting-name">Hi, ${escapeHTML(greetingName)}!</span><small class="mobile-greeting-period">selamat ${escapeHTML(greetingPeriod)}</small>`;
     reminderLead.textContent = todayPlots.length
       ? `Hari ini ada ${todayPlots.length} jadwal, ${todaySpot} spot, dan ${todayBrandCount} brand yang perlu dipantau.`
       : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
   } else {
-    greetingTitle.textContent = `Selamat ${greetingPeriod}, ${greetingName}.`;
+    greetingTitle.innerHTML = `<span class="hero-greeting-main">SELAMAT ${escapeHTML(greetingPeriod).toUpperCase()}</span><span class="hero-greeting-name">${escapeHTML(greetingName)}</span>`;
     reminderLead.innerHTML = todayPlots.length
-      ? `Hari ini ada <strong>${todayPlots.length} jadwal</strong>, <strong>${todaySpot} spot</strong>, dan <strong>${todayBrandCount} brand</strong> yang perlu dipantau.`
+      ? `Hari ini ada <strong>${todayPlots.length} Jadwal</strong>, <strong>${todaySpot} Spot</strong>, dan <strong>${todayBrandCount} Brand</strong> yang perlu dipantau.`
       : "Belum ada jadwal pada tanggal operasional. Cek input baru sebelum membuat laporan harian.";
   }
 
@@ -2818,7 +2820,6 @@ function renderDashboard() {
   const operationDate = state.operationDate;
   const currentWeek = weekRangeFromDate(operationDate);
   const todayPlots = sortByUnitThenProgram(state.plotings.filter((plot) => plot.planAiring === operationDate));
-  const allBatches = batches();
   const allCompletedSpot = completedSpotSum(state.plotings);
   const pendingSpot = sum(state.plotings.filter((plot) => isPendingAiringStatus(plot.airingStatus)).map((plot) => plot.spot));
   const upcoming = sortByDate(state.plotings.filter((plot) => isSameWeekDate(plot.planAiring, operationDate)));
@@ -2843,21 +2844,64 @@ function renderDashboard() {
       </span>
     </td>
     <td class="dashboard-today-format">${escapeHTML(plot.format)}</td>
+    <td class="dashboard-today-version">${escapeHTML(plot.version || "-")}</td>
     <td class="dashboard-today-spot">
       <span class="dashboard-today-desktop-spot">${plotSpotMarkup(plot)}</span>
       <span class="dashboard-today-mobile-spot ${spotClass(plot.spot, plot.airingStatus)}">${Number(plot.spot)}<small>spot</small></span>
     </td>
-    <td class="dashboard-today-status">${badge(plot.airingStatus)}</td>
-  </tr>`).join("") : `<tr><td colspan="5" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
+    <td class="dashboard-today-status"><select class="dashboard-today-status-select" data-dashboard-status-id="${escapeHTML(plot.id)}" aria-label="Ubah status tayang ${escapeHTML(plot.brand)}">${optionMarkup(AIRING_STATUSES, "Pilih status", plot.airingStatus || "Planned")}</select></td>
+  </tr>`).join("") : `<tr><td colspan="6" class="empty-row">Belum ada jadwal pada tanggal operasional.</td></tr>`;
 
-  $("#attentionList").innerHTML = attention.length ? attention.slice(0, 5).map((plot) => `<div class="attention-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><button class="row-action" data-edit-batch="${escapeHTML(plot.batchId)}" type="button">Edit</button></div>`).join("") : `<div class="attention-item"><div><strong>Tidak ada jadwal Planned dalam 3 hari.</strong><p>Silakan cek timeline jika ada perubahan dari sales.</p></div></div>`;
+  renderDashboardInsights(upcoming, operationDate, currentWeek);
 
-  const recentBatches = allBatches.sort((a, b) => (b[0].updatedAt || "").localeCompare(a[0].updatedAt || "")).slice(0, 5);
-  $("#recentBatchList").innerHTML = recentBatches.length ? recentBatches.map((batch) => {
-    const first = batch[0];
-    return `<div class="batch-item"><div><strong>${escapeHTML(first.brand)} · ${escapeHTML(first.advertiser)}</strong><p>${escapeHTML(first.batchId)} · PIC: ${escapeHTML(first.pic)} · ${batch.length} tanggal · ${sum(batch.map((plot) => plot.spot))} spot</p></div><button class="row-action" data-edit-batch="${escapeHTML(first.batchId)}" type="button">Edit</button></div>`;
-  }).join("") : `<div class="batch-item"><div><strong>Belum ada batch</strong><p>Belum ada batch ploting pada sistem.</p></div></div>`;
-  $("#upcomingList").innerHTML = upcoming.length ? upcoming.slice(0, 6).map((plot) => `<div class="upcoming-item"><div><strong>${escapeHTML(plot.brand)} · ${escapeHTML(plot.program)}</strong><p>${formatDate(plot.planAiring)} · ${escapeHTML(plot.unit)} · <span class="${spotClass(plot.spot, plot.airingStatus)}">${plot.spot} spot</span></p></div><span class="item-side">${escapeHTML(plot.format)}</span></div>`).join("") : `<div class="upcoming-item"><div><strong>Belum ada jadwal</strong><p>Tidak ada penayangan pada minggu ini.</p></div></div>`;
+}
+
+
+function updateDashboardTodayStatus(scheduleId, status) {
+  const plot = state.plotings.find((item) => item.id === scheduleId);
+  if (!plot || !status || plot.airingStatus === status) return;
+  const beforeStatus = plot.airingStatus;
+  plot.airingStatus = status;
+  plot.updatedAt = nowIso();
+  saveState();
+  renderAll();
+  showToast(`Status tayang ${plot.brand} diperbarui menjadi ${status}.`);
+  recordAuditLog({
+    action: "SCHEDULE_STATUS_UPDATED", entityType: "schedule", entityId: plot.id,
+    target: auditTargetFromPlot(plot),
+    summary: `Status tayang ${plot.brand} berubah menjadi ${status}.`,
+    changes: { airingStatus: { before: beforeStatus, after: status } },
+    metadata: { source: "dashboard" }
+  });
+}
+
+
+// Dashboard-only charts and weekly agenda; use the same operational data as the cards.
+function renderDashboardInsights(plots, operationDate, week) {
+  const days = Array.from({ length: 7 }, (_, index) => offsetIsoDate(week.start, index));
+  const labels = days.map(date => formatDate(date, { weekday: "short" }));
+  const colors = ["#e5a23b", "#ec826b", "#59b5b4", "#49a4c8", "#9587b4", "#cf819b", "#617f91"];
+  const totals = days.map(date => sum(plots.filter(plot => plot.planAiring === date).map(plot => plot.spot)));
+  const completed = days.map(date => completedSpotSum(plots.filter(plot => plot.planAiring === date)));
+  const ceiling = Math.max(5, Math.ceil(Math.max(...totals, ...completed) / 5) * 5);
+  const x = index => 62 + index * 76;
+  const y = value => 222 - value / ceiling * 166;
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const value = ceiling * index / 4;
+    return `<line x1="35" y1="${y(value)}" x2="552" y2="${y(value)}" stroke="currentColor" opacity=".1"/><text x="27" y="${y(value) + 4}" text-anchor="end" class="dk-axis">${Number(value.toFixed(1))}</text>`;
+  }).join("");
+  const bars = totals.map((value, index) => `<g><title>${labels[index]}: ${value} spot, ${completed[index]} sudah tayang</title><rect x="${x(index)-17}" y="${y(value)}" width="34" height="${222-y(value)}" rx="17" fill="${colors[index]}" opacity=".85"/><circle cx="${x(index)}" cy="${y(value)-16}" r="15" fill="${colors[index]}"/><text x="${x(index)}" y="${y(value)-12}" text-anchor="middle" fill="white" font-size="11" font-weight="700">${value}</text><text x="${x(index)}" y="250" text-anchor="middle" class="dk-axis">${labels[index]}</text><text x="${x(index)}" y="268" text-anchor="middle" class="dk-axis">${days[index].slice(8)}</text></g>`).join("");
+  const points = completed.map((value, index) => `${x(index)},${y(value)}`).join(" ");
+  const dots = completed.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="5" fill="var(--surface, white)" stroke="var(--ink, #102852)" stroke-width="2"><title>${labels[index]}: ${value} spot sudah tayang</title></circle>`).join("");
+  $("#dashboardChartPeriod").textContent = `${formatDate(week.start, {day:"numeric",month:"short"})} – ${formatDate(week.end, {day:"numeric",month:"short"})}`;
+  $("#dashboardKpiChart").innerHTML = `<div class="dk-summary"><div><strong>${sum(totals)}</strong><span>Total spot minggu ini</span></div><div><strong>${sum(completed)}</strong><span>Spot sudah tayang</span></div></div><div class="dk-legend"><span><i></i>Total spot</span><span><i class="dk-line"></i>Sudah tayang</span></div><svg viewBox="0 0 575 285" role="img" aria-label="Grafik spot harian minggu ini"><title>Jumlah spot dan spot sudah tayang per hari</title>${grid}${bars}<polyline points="${points}" fill="none" stroke="var(--ink, #102852)" stroke-width="2.5" stroke-linejoin="round"/>${dots}</svg><details class="dk-data"><summary>Lihat data grafik</summary><table><caption>Spot per hari</caption><thead><tr><th>Hari</th><th>Total spot</th><th>Sudah tayang</th></tr></thead><tbody>${days.map((date,i)=>`<tr><th>${labels[i]} ${date}</th><td>${totals[i]}</td><td>${completed[i]}</td></tr>`).join("")}</tbody></table></details>`;
+  const agenda = $("#dashboardWeekAgenda");
+  function selectDay(date) {
+    const selected = sortByUnitThenProgram(plots.filter(plot => plot.planAiring === date));
+    agenda.innerHTML = `<div class="dw-date">${formatDate(date, {day:"numeric",month:"long"})}<span>${formatDate(date, {weekday:"long"})}</span></div><div class="dw-days" role="group" aria-label="Pilih tanggal penayangan">${days.map((day,index)=>`<button type="button" data-dashboard-day="${day}" aria-pressed="${day===date}" class="${day===date?'is-selected':''}"><span>${labels[index]}</span><strong>${day.slice(8)}</strong><small>${totals[index]} spot</small></button>`).join("")}</div><div class="dw-agenda"><div class="dw-agenda-heading"><strong>Jadwal penayangan</strong><span>${selected.length} jadwal</span></div><div class="dw-items">${selected.length?selected.map(plot=>`<div class="dw-item"><span class="dw-marker ${isCompletedAiringStatus(plot.airingStatus)?'is-complete':''}" aria-hidden="true"></span><div><strong>${escapeHTML(plot.brand)}</strong><p>${escapeHTML(plot.program)} · ${escapeHTML(plot.unit)}</p><small>${escapeHTML(plot.format)} · ${escapeHTML(plot.airingStatus)}</small></div><span class="dw-spots">${Number(plot.spot)}<small>spot</small></span></div>`).join(""):'<p class="dw-empty">Tidak ada penayangan pada tanggal ini.</p>'}</div></div>`;
+    agenda.querySelectorAll("[data-dashboard-day]").forEach(button=>button.addEventListener("click",()=>selectDay(button.dataset.dashboardDay)));
+  }
+  selectDay(operationDate);
 }
 
 function filteredPlotings() {
@@ -3987,6 +4031,156 @@ function renderPicReport() {
   syncMobilePicReportSections();
 }
 
+
+function destroyManagementCharts() {
+  Object.values(managementCharts).forEach((chart) => chart?.destroy?.());
+  managementCharts = {};
+}
+
+function getManagementReportPlots(startDate = "", endDate = "") {
+  return state.plotings.filter((plot) => {
+    const date = String(plot.planAiring || "");
+    return (!startDate || date >= startDate) && (!endDate || date <= endDate);
+  });
+}
+
+function managementPicBrandCardMarkup(plots) {
+  const grouped = {};
+  plots.forEach((plot) => {
+    const pic = plot.pic || plot.picName || "Belum ada PIC";
+    const brand = plot.brand || "Tanpa Brand";
+    const format = plot.format || plot.vaFormat || "Tanpa Format";
+    const key = `${pic}||${brand}||${format}`;
+    if (!grouped[key]) grouped[key] = { pic, brand, format, items: [] };
+    grouped[key].items.push(plot);
+  });
+  return Object.values(grouped).sort((a,b)=>sum(b.items.map(x=>x.spot))-sum(a.items.map(x=>x.spot))).map((row)=>{
+    const spots=sum(row.items.map(x=>x.spot));
+    const units=unique(row.items.map(x=>x.unit)).filter(Boolean);
+    const programs=unique(row.items.map(x=>x.program)).filter(Boolean);
+    return `<tr>
+      <td>${escapeHTML(row.brand)}</td>
+      <td>${escapeHTML(units.join(", ") || "-")}</td>
+      <td>${escapeHTML(programs.join(", ") || "-")}</td>
+      <td><span class="format-pill">${escapeHTML(row.format)}</span></td>
+      <td><strong>${spots} Spot</strong></td>
+    </tr>`;
+  }).join("") || '<p class="empty-row">Belum ada data.</p>';
+}
+
+function getManagementFilteredPlots(plots) {
+  return plots.filter((plot)=> {
+    const pic = managementReportFilters.pic || "";
+    const date = String(plot.planAiring || "");
+    const month = date.slice(0,7);
+    const matchesPic = !pic || plotMatchesPic(plot, pic);
+    const matchesMonth = !managementReportFilters.month || month === managementReportFilters.month;
+    return matchesPic && matchesMonth;
+  });
+}
+
+function managementReportMarkup(title, plots, periodLabel) {
+  plots = getManagementFilteredPlots(plots);
+  const spots = sum(plots.map((p) => p.spot));
+  const brands = unique(plots.map((p) => p.brand)).length;
+  const formats = unique(plots.map((p) => p.format)).length;
+  return `<div class="management-filter-result"><span>${escapeHTML(periodLabel)}</span><strong>${managementReportFilters.pic || "-"}</strong></div>
+  <div class="management-report-grid">
+    <article class="broadcast-kpi"><small>${title}</small><strong>${plots.length}</strong><span>Jadwal</span></article>
+    <article class="broadcast-kpi"><small>Total Spot</small><strong>${spots}</strong><span>Spot tayang</span></article>
+    <article class="broadcast-kpi"><small>Brand Aktif</small><strong>${brands}</strong><span>Campaign</span></article>
+    <article class="broadcast-kpi"><small>Format VA</small><strong>${formats}</strong><span>Dipisahkan per format</span></article>
+  </div>
+  <div class="management-chart-grid"><article class="panel"><div class="panel-heading"><h3>Trend Spot</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementTrendChart" : "weeklyManagementTrendChart"}"></canvas></article><article class="panel"><div class="panel-heading"><h3>Unit Performance</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementUnitChart" : "weeklyManagementUnitChart"}"></canvas></article></div>
+  <div class="panel pic-brand-report-panel"><div class="panel-heading"><h3>Detail Handling PIC</h3></div><div class="table-wrap"><table class="data-table management-detail-table"><thead><tr><th>Brand</th><th>On Air Unit</th><th>Program</th><th>Format VA</th><th>Total Spot</th></tr></thead><tbody>${managementPicBrandCardMarkup(plots)}</tbody></table></div></div>`;
+}
+
+function renderManagementCharts(plots, mode = "weekly") {
+  destroyManagementCharts();
+  if (!window.Chart) return;
+  window.setTimeout(() => {
+    const days = {};
+    plots.forEach((p) => {
+      const date = String(p.planAiring || "");
+      const day = Number(date.slice(8,10));
+      const key = mode === "monthly" ? `Week ${Math.ceil(day / 7)}` : date.slice(5);
+      days[key] = (days[key] || 0) + Number(p.spot || 0);
+    });
+    const units = {};
+    plots.forEach((p) => {
+      const key = p.unit || "-";
+      units[key] = (units[key] || 0) + Number(p.spot || 0);
+    });
+    const prefix = mode === "monthly" ? "monthlyManagement" : "weeklyManagement";
+    const trend = document.getElementById(`${prefix}TrendChart`);
+    const unit = document.getElementById(`${prefix}UnitChart`);
+    if (trend) {
+      managementCharts.trend = new Chart(trend, {type:"line", data:{labels:Object.keys(days), datasets:[{label:"Spot", data:Object.values(days), tension:.35, fill:true}]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}});
+    }
+    if (unit) {
+      managementCharts.unit = new Chart(unit, {type:"doughnut", data:{labels:Object.keys(units), datasets:[{data:Object.values(units)}]}, options:{responsive:true, maintainAspectRatio:false}});
+    }
+  }, 120);
+}
+
+function syncManagementReportFilters() {
+  const pics = activePicAccountNames();
+  const months = ["", ...unique(state.plotings.map((p)=>String(p.planAiring||"").slice(0,7)).filter(Boolean)).sort()];
+  ["#weeklyReportPicFilter", "#monthlyReportPicFilter"].forEach((selector)=>setSelectOptions(selector, pics, "Pilih PIC", managementReportFilters.pic));
+  ["#weeklyReportMonthFilter", "#monthlyReportMonthFilter"].forEach((selector)=>setSelectOptions(selector, months, "Semua Bulan", managementReportFilters.month));
+}
+
+function localIso(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getOperationalWeekRange(dateValue) {
+  const date = new Date(dateValue || new Date());
+  date.setHours(0,0,0,0);
+
+  // Periode operasional mingguan: Jumat sampai Kamis.
+  // getDay(): Minggu=0, Senin=1, ..., Kamis=4, Jumat=5, Sabtu=6.
+  const day = date.getDay();
+  const daysSinceFriday = (day - 5 + 7) % 7;
+  const start = new Date(date);
+  start.setDate(date.getDate() - daysSinceFriday);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  return { start: localIso(start), end: localIso(end) };
+}
+
+function getOperationalMonthRange(dateValue) {
+  const date = new Date(dateValue || new Date());
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  return { start: localIso(start), end: localIso(end) };
+}
+
+function renderWeeklyReport() {
+  const range = getOperationalWeekRange(state.operationDate || new Date());
+  const plots = getManagementReportPlots(range.start, range.end);
+  syncManagementReportFilters();
+  const el = document.getElementById("weeklyReportContent");
+  if (!el) return;
+  el.innerHTML = managementReportMarkup("Minggu berjalan", plots, "Minggu Jumat-Kamis");
+  renderManagementCharts(getManagementFilteredPlots(plots), "weekly");
+}
+
+function renderMonthlyReport() {
+  const range = getOperationalMonthRange(state.operationDate || new Date());
+  const plots = getManagementReportPlots(range.start, range.end);
+  syncManagementReportFilters();
+  const el = document.getElementById("monthlyReportContent");
+  if (!el) return;
+  el.innerHTML = managementReportMarkup("Bulan berjalan", plots, "Bulan operasional");
+  renderManagementCharts(getManagementFilteredPlots(plots), "monthly");
+}
+
 function renderMasters() {
   const managedEntries = EDITABLE_MASTER_KEYS.map((key) => [key, MASTER_META[key]]);
   const summary = `${managedEntries.map(([key, meta]) => `<div class="summary-tile"><strong>${state.masters[key].length}</strong><span>${escapeHTML(meta.label)}</span></div>`).join("")}<div class="summary-tile summary-tile--managed"><strong>${activePicAccountNames().length}</strong><span>PIC dari akun aktif</span></div>`;
@@ -4010,6 +4204,8 @@ function renderActiveView() {
     fulltimeline: renderFullTimeline,
     brand: renderBrand,
     picreport: renderPicReport,
+    weeklyreport: renderWeeklyReport,
+    monthlyreport: renderMonthlyReport,
     masters: renderMasters,
     auditlog: renderAuditLog
   };
@@ -4041,6 +4237,8 @@ function updatePageTitle() {
     fulltimeline: ["TIMELINE BULANAN", "Kalender Full"],
     brand: ["TIMELINE BRAND", "Timeline Brand"],
     picreport: ["MONITORING PIC", "Report per PIC"],
+    weeklyreport: ["MANAGEMENT CENTER", "Report Mingguan"],
+    monthlyreport: ["MANAGEMENT CENTER", "Report Bulanan"],
     masters: ["DATABASE PILIHAN", "Master Data"],
     auditlog: ["RIWAYAT AKTIVITAS", "Audit Log"],
     guide: ["PANDUAN OPERASIONAL", "Alur Kerja"]
@@ -5826,6 +6024,11 @@ function bindEvents() {
   });
 
   document.addEventListener("change", (event) => {
+    const dashboardStatus = event.target.closest("[data-dashboard-status-id]");
+    if (dashboardStatus) {
+      updateDashboardTodayStatus(dashboardStatus.dataset.dashboardStatusId, dashboardStatus.value);
+      return;
+    }
     const scheduleStatus = event.target.closest(".schedule-status-input");
     if (scheduleStatus) syncScheduleRowVisualState(scheduleStatus.closest(".schedule-row"));
   });
@@ -5905,6 +6108,8 @@ function bindEvents() {
   $("#picReportSelect").addEventListener("change", (event) => { filters.pic.pic = event.target.value; resetPicReportPagination(); renderPicReport(); });
   $("#picReportYearSelect").addEventListener("change", (event) => { filters.pic.year = event.target.value; resetPicReportPagination(); renderPicReport(); });
   $("#picReportQuarterSelect").addEventListener("change", (event) => { filters.pic.quarter = event.target.value; resetPicReportPagination(); renderPicReport(); });
+  ["#weeklyReportPicFilter", "#monthlyReportPicFilter"].forEach((selector)=>$(selector)?.addEventListener("change", (event)=>{ managementReportFilters.pic = event.target.value; renderWeeklyReport(); renderMonthlyReport(); }));
+  ["#weeklyReportMonthFilter", "#monthlyReportMonthFilter"].forEach((selector)=>$(selector)?.addEventListener("change", (event)=>{ managementReportFilters.month = event.target.value; renderWeeklyReport(); renderMonthlyReport(); }));
   $("#auditSearchInput")?.addEventListener("input", (event) => { filters.audit.query = event.target.value; renderAuditLog(); });
   $("#auditActorFilter")?.addEventListener("change", (event) => { filters.audit.actor = event.target.value; renderAuditLog(); });
   $("#auditActionFilter")?.addEventListener("change", (event) => { filters.audit.action = event.target.value; renderAuditLog(); });
@@ -6120,3 +6325,38 @@ try {
   console.error("Inisialisasi tampilan aplikasi gagal.", error);
   showToast("Sebagian tampilan belum siap. Login tetap dapat digunakan.");
 }
+
+
+// v98: scroll reveal observer
+(() => {
+  const targets = [
+    '.panel',
+    '.kpi-card',
+    '.mini-kpi',
+    '.section-intro',
+    '.toolbar'
+  ];
+
+  const applyMotion = () => {
+    document.querySelectorAll(targets.join(',')).forEach((el) => {
+      if (el.dataset.motionReady) return;
+      el.dataset.motionReady = 'true';
+      el.classList.add('motion-reveal');
+    });
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      threshold: .12
+    });
+
+    document.querySelectorAll('.motion-reveal').forEach((el) => observer.observe(el));
+  };
+
+  window.addEventListener('load', applyMotion);
+})();
