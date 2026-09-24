@@ -4059,7 +4059,7 @@ function managementReportDateLabel(items) {
   return `${parsed.map((item) => item.day).join(", ")} ${months[parsed.at(-1).month - 1]} ${parsed.at(-1).year}`;
 }
 
-function managementPicBrandCardMarkup(plots) {
+function managementPicBrandCardMarkup(plots, showDates = false) {
   const grouped = {};
   plots.forEach((plot) => {
     const pic = plot.pic || plot.picName || "Belum ada PIC";
@@ -4073,12 +4073,12 @@ function managementPicBrandCardMarkup(plots) {
     const spots=sum(row.items.map(x=>x.spot));
     const units=unique(row.items.map(x=>x.unit)).filter(Boolean);
     const programs=unique(row.items.map(x=>x.program)).filter(Boolean);
-    const dates=managementReportDateLabel(row.items);
+    const dates=showDates ? managementReportDateLabel(row.items) : "";
     return `<tr>
       <td>${escapeHTML(row.brand)}</td>
       <td>${escapeHTML(units.join(", ") || "-")}</td>
       <td>${escapeHTML(programs.join(", ") || "-")}</td>
-      <td>${escapeHTML(dates)}</td>
+      ${showDates ? `<td>${escapeHTML(dates)}</td>` : ""}
       <td><span class="format-pill">${escapeHTML(row.format)}</span></td>
       <td><strong>${spots} Spot</strong></td>
     </tr>`;
@@ -4096,7 +4096,7 @@ function getManagementFilteredPlots(plots) {
   });
 }
 
-function managementReportMarkup(title, plots, periodLabel) {
+function managementReportMarkup(title, plots, periodLabel, showDates = false) {
   plots = getManagementFilteredPlots(plots);
   const spots = sum(plots.map((p) => p.spot));
   const brands = unique(plots.map((p) => p.brand)).length;
@@ -4109,7 +4109,7 @@ function managementReportMarkup(title, plots, periodLabel) {
     <article class="broadcast-kpi"><small>Format VA</small><strong>${formats}</strong><span>Dipisahkan per format</span></article>
   </div>
   <div class="management-chart-grid"><article class="panel"><div class="panel-heading"><h3>Trend Spot</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementTrendChart" : "weeklyManagementTrendChart"}"></canvas></article><article class="panel"><div class="panel-heading"><h3>Unit Performance</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementUnitChart" : "weeklyManagementUnitChart"}"></canvas></article></div>
-  <div class="panel pic-brand-report-panel"><div class="panel-heading"><h3>Detail Handling PIC</h3></div><div class="table-wrap"><table class="data-table management-detail-table"><thead><tr><th>Brand</th><th>On Air Unit</th><th>Program</th><th>Tanggal</th><th>Format VA</th><th>Total Spot</th></tr></thead><tbody>${managementPicBrandCardMarkup(plots)}</tbody></table></div></div>`;
+  <div class="panel pic-brand-report-panel"><div class="panel-heading"><h3>Detail Handling PIC</h3></div><div class="table-wrap"><table class="data-table management-detail-table"><thead><tr><th>Brand</th><th>On Air Unit</th><th>Program</th>${showDates ? "<th>Tanggal</th>" : ""}<th>Format VA</th><th>Total Spot</th></tr></thead><tbody>${managementPicBrandCardMarkup(plots, showDates)}</tbody></table></div></div>`;
 }
 
 function renderManagementCharts(plots, mode = "weekly") {
@@ -4184,7 +4184,7 @@ function renderWeeklyReport() {
   syncManagementReportFilters();
   const el = document.getElementById("weeklyReportContent");
   if (!el) return;
-  el.innerHTML = managementReportMarkup("Minggu berjalan", plots, "Minggu Jumat-Kamis");
+  el.innerHTML = managementReportMarkup("Minggu berjalan", plots, "Minggu Jumat-Kamis", true);
   renderManagementCharts(getManagementFilteredPlots(plots), "weekly");
 }
 
