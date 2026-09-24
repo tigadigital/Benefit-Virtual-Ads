@@ -4044,6 +4044,21 @@ function getManagementReportPlots(startDate = "", endDate = "") {
   });
 }
 
+function managementReportDateLabel(items) {
+  const months = [
+    "Januari", "Februari", "Maret", "April",
+    "Mei", "Juni", "Juli", "Agustus",
+    "September", "Oktober", "November", "Desember"
+  ];
+  const dates = unique(items.map((item) => item.planAiring).filter(Boolean)).sort();
+  if (!dates.length) return "-";
+  const parsed = dates.map((date) => {
+    const parts = String(date).split("-");
+    return { day: Number(parts[2]), month: Number(parts[1]), year: Number(parts[0]) };
+  });
+  return `${parsed.map((item) => item.day).join(", ")} ${months[parsed.at(-1).month - 1]} ${parsed.at(-1).year}`;
+}
+
 function managementPicBrandCardMarkup(plots) {
   const grouped = {};
   plots.forEach((plot) => {
@@ -4058,10 +4073,12 @@ function managementPicBrandCardMarkup(plots) {
     const spots=sum(row.items.map(x=>x.spot));
     const units=unique(row.items.map(x=>x.unit)).filter(Boolean);
     const programs=unique(row.items.map(x=>x.program)).filter(Boolean);
+    const dates=managementReportDateLabel(row.items);
     return `<tr>
       <td>${escapeHTML(row.brand)}</td>
       <td>${escapeHTML(units.join(", ") || "-")}</td>
       <td>${escapeHTML(programs.join(", ") || "-")}</td>
+      <td>${escapeHTML(dates)}</td>
       <td><span class="format-pill">${escapeHTML(row.format)}</span></td>
       <td><strong>${spots} Spot</strong></td>
     </tr>`;
@@ -4092,7 +4109,7 @@ function managementReportMarkup(title, plots, periodLabel) {
     <article class="broadcast-kpi"><small>Format VA</small><strong>${formats}</strong><span>Dipisahkan per format</span></article>
   </div>
   <div class="management-chart-grid"><article class="panel"><div class="panel-heading"><h3>Trend Spot</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementTrendChart" : "weeklyManagementTrendChart"}"></canvas></article><article class="panel"><div class="panel-heading"><h3>Unit Performance</h3></div><canvas id="${title.includes("Bulan") ? "monthlyManagementUnitChart" : "weeklyManagementUnitChart"}"></canvas></article></div>
-  <div class="panel pic-brand-report-panel"><div class="panel-heading"><h3>Detail Handling PIC</h3></div><div class="table-wrap"><table class="data-table management-detail-table"><thead><tr><th>Brand</th><th>On Air Unit</th><th>Program</th><th>Format VA</th><th>Total Spot</th></tr></thead><tbody>${managementPicBrandCardMarkup(plots)}</tbody></table></div></div>`;
+  <div class="panel pic-brand-report-panel"><div class="panel-heading"><h3>Detail Handling PIC</h3></div><div class="table-wrap"><table class="data-table management-detail-table"><thead><tr><th>Brand</th><th>On Air Unit</th><th>Program</th><th>Tanggal</th><th>Format VA</th><th>Total Spot</th></tr></thead><tbody>${managementPicBrandCardMarkup(plots)}</tbody></table></div></div>`;
 }
 
 function renderManagementCharts(plots, mode = "weekly") {
