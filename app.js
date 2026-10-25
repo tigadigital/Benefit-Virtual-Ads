@@ -21,7 +21,7 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
-import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+import { getDatabase, ref, onValue, update, runTransaction } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
 const LOCAL_SETTINGS_KEY = "va-benefit-ploting-v28-settings";
 const LOCAL_CACHE_PREFIX = "va-benefit-ploting-v30-cache";
@@ -2481,6 +2481,7 @@ function startFirebaseLoadTimeout() {
 }
 
 function stopRealtimeDatabaseListeners() {
+  stopBillboard();
   if (unsubscribeMasters) unsubscribeMasters();
   if (unsubscribeSchedules) unsubscribeSchedules();
   if (unsubscribeAuditLogs) unsubscribeAuditLogs();
@@ -2507,6 +2508,7 @@ function stopRealtimeDatabaseListeners() {
 
 function subscribeToRealtimeDatabase() {
   stopRealtimeDatabaseListeners();
+  subscribeBillboard();
   setFirebaseStatus("connecting", state.plotings.length ? "Memuat pembaruan" : "Memuat data");
   startFirebaseLoadTimeout();
 
@@ -2558,6 +2560,7 @@ function subscribeToRealtimeDatabase() {
     if (teamChatState.panelOpen) renderTeamChat();
     if ($("#profileModalBackdrop")?.classList.contains("open")) renderProfileModal();
     populateSelects();
+    renderBillboardBadge(); renderBillboardLists();
   }, (error) => {
     console.error("Direktori akun tim tidak dapat dimuat.", error);
     showToast({ message: "Direktori akun belum dapat dimuat. Periksa Firebase Rules untuk teamAccounts.", type: "warning" });
@@ -4230,6 +4233,7 @@ function renderActiveView() {
 }
 
 function renderAll() {
+  renderBillboardBadge(); renderBillboardLists();
   document.body.dataset.activeView = activeView;
   // Saat dashboard dibuka pertama kali, jangan isi semua filter halaman tersembunyi.
   // Dropdown besar seperti brand, PIC, program, dan format baru dibuat saat halamannya dibuka.
@@ -5972,7 +5976,7 @@ function bindAuthenticationEvents() {
 }
 
 function bindEvents() {
-  $$(".nav-item").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+  $$(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $$(".nav-group-toggle").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -6322,6 +6326,366 @@ function watchOperationalDate() {
   }, 60_000);
 }
 
+// Billboard orders: isolated database branch; existing plotting sync stays unchanged.
+let billboardOrders = {};
+let billboardSeen = {};
+let billboardLoaded = false;
+let billboardError = "";
+let unsubscribeBillboard = null;
+let unsubscribeBillboardSeen = null;
+let billboardBusy = false;
+let billboardDialog = null;
+let billboardReminderDialog = null;
+const billboardPopupShown = new Set();
+
+function billboardClock(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23"
+  }).formatToParts(now).map(p => [p.type, p.value]));
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  const next = new Date(`${today}T00:00:00Z`); next.setUTCDate(next.getUTCDate() + 1);
+  return { today, tomorrow: next.toISOString().slice(0, 10), hour: Number(parts.hour) };
+}
+function billboardNameMatches(account, name) {
+  const key = normalizeWhitespace(name).toLowerCase();
+  return !!key && [account?.name, ...(account?.picAliases || [])].some(n => normalizeWhitespace(n).toLowerCase() === key);
+}
+function billboardAssignee(plot) {
+  const matches = allTeamAccounts().filter(a => billboardNameMatches(a, plot.billboardPic));
+  return matches.length === 1 ? matches[0] : null;
+}
+function billboardEligible(plot) {
+  return isBillboardFormat(plot.format) && !FINAL_AIRING_STATUSES.has(plot.airingStatus);
+}
+function billboardCovered(plot, orders = billboardOrders) {
+  return Object.values(orders).some(o => o.status !== "cancelled" && (o.schedules || []).some(s => s.id === plot.id && s.date === plot.planAiring));
+}
+function billboardPending() {
+  const me = currentTeamAccount(), clock = billboardClock();
+  return state.plotings.filter(p => billboardEligible(p) && billboardNameMatches(me, p.pic) && p.planAiring >= clock.today && !billboardCovered(p));
+}
+function billboardReminders() {
+  const clock = billboardClock();
+  return clock.hour < 9 ? [] : billboardPending().filter(p => p.planAiring === clock.tomorrow);
+}
+function billboardNotifications() {
+  const id = currentTeamAccountId();
+  return Object.values(billboardOrders).filter(o => o.notifyId === id && billboardSeen[o.id] !== o.updatedAt);
+}
+function stopBillboard() {
+  unsubscribeBillboard?.(); unsubscribeBillboardSeen?.();
+  unsubscribeBillboard = null; unsubscribeBillboardSeen = null;
+  billboardOrders = {}; billboardSeen = {}; billboardLoaded = false; billboardError = "";
+  billboardDialog?.close(); billboardReminderDialog?.close(); renderBillboardBadge();
+}
+function subscribeBillboard() {
+  const uid = currentFirebaseUser?.uid;
+  if (!uid) return;
+  unsubscribeBillboard = onValue(ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/billboardOrders`), snap => {
+    billboardOrders = snap.val() || {}; billboardLoaded = true; billboardError = "";
+    renderBillboardBadge(); renderBillboardLists();
+  }, () => {
+    billboardLoaded = false;
+    billboardError = "Order belum dapat dimuat. Periksa koneksi dan izin Firebase untuk billboardOrders.";
+    renderBillboardBadge(); renderBillboardLists();
+  });
+  unsubscribeBillboardSeen = onValue(ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/billboardRead/${uid}`), snap => {
+    billboardSeen = snap.val() || {}; renderBillboardBadge(); renderBillboardLists();
+  }, () => { /* Orders remain visible if read receipts are unavailable. */ });
+}
+function renderBillboardBadge() {
+  const button = document.getElementById("billboardOpen");
+  if (!button) return;
+  button.hidden = !currentTeamAccount()?.active;
+  const count = billboardLoaded ? billboardReminders().length + billboardNotifications().length : 0;
+  button.querySelector("em").textContent = "Order Billboard";
+  const badge = button.querySelector(".bb-notification-count");
+  badge.textContent = String(count); badge.hidden = !count;
+  button.title = `${count} pemberitahuan: pengingat H-1 dan pembaruan order`;
+  const mobile = document.getElementById("billboardMobileOpen");
+  if (mobile) { mobile.hidden = button.hidden; mobile.querySelector("strong").textContent = "Order Billboard"; mobile.querySelector("small").textContent = count ? `Operasional · ${count} pemberitahuan` : "Operasional · Order dan notifikasi"; }
+  button.setAttribute("aria-label", `Order Billboard, ${count} pemberitahuan`);
+  maybeShowBillboardReminder();
+}
+function billboardReminderKey(plot) {
+  return `bb-h1:${currentFirebaseUser?.uid}:${billboardClock().today}:${plot.id}:${plot.planAiring}`;
+}
+function billboardReminderWasShown(plot) {
+  const key = billboardReminderKey(plot);
+  if (billboardPopupShown.has(key)) return true;
+  try { return sessionStorage.getItem(key) === "1"; } catch (_) { return false; }
+}
+function maybeShowBillboardReminder() {
+  if (!billboardReminderDialog) return;
+  if (!billboardLoaded || !firebaseSchedulesLoaded || !teamAccountsLoaded || !currentTeamAccount()?.active) {
+    billboardReminderDialog.close(); return;
+  }
+  const reminders = billboardReminders();
+  // Remove entries immediately when an order is created or a plotting is cancelled.
+  if (billboardReminderDialog.open) {
+    const visibleIds = JSON.parse(billboardReminderDialog.dataset.plotIds || "[]");
+    const remaining = reminders.filter(p => visibleIds.includes(p.id));
+    if (!remaining.length) billboardReminderDialog.close();
+    else renderBillboardReminderPopup(remaining);
+    return;
+  }
+  if (document.hidden || document.querySelector('dialog[open], .modal-backdrop.open') || !reminders.length) return;
+  const fresh = reminders.filter(p => !billboardReminderWasShown(p));
+  if (!fresh.length) return;
+  renderBillboardReminderPopup(fresh);
+  billboardReminderDialog.showModal();
+  for (const plot of fresh) {
+    const key = billboardReminderKey(plot); billboardPopupShown.add(key);
+    try { sessionStorage.setItem(key, "1"); } catch (_) { /* In-memory fallback. */ }
+  }
+}
+function renderBillboardReminderPopup(plots) {
+  billboardReminderDialog.dataset.plotIds = JSON.stringify(plots.map(p => p.id));
+  document.getElementById("bbPopupCount").textContent = `${plots.length} jadwal tayang besok belum diorder`;
+  document.getElementById("bbPopupItems").innerHTML = plots.map(p => `<article class="bb-popup-item"><div><strong>${escapeHTML(p.brand)}</strong><p>${escapeHTML(p.version)}</p><small>${escapeHTML(formatDate(p.planAiring))} · ${escapeHTML(p.program || "")}</small></div><button type="button" data-bb-popup-order="${escapeHTML(p.id)}">Buat order</button></article>`).join("");
+}
+function billboardStatus(status) {
+  return ({new:"Order baru", working:"Dikerjakan", review:"Dikerjakan", revision:"Dikerjakan", done:"Done / Sudah dikerjakan"})[status] || status;
+}
+function billboardOpen(seed = "") {
+  renderBillboardLists();
+  if (!billboardDialog.open) billboardDialog.showModal();
+  if (seed) { document.getElementById("bbPlot").value = seed; billboardFill(); }
+}
+function billboardFill() {
+  const plot = state.plotings.find(p => p.id === document.getElementById("bbPlot").value);
+  document.getElementById("bbBrand").value = plot?.brand || "";
+  document.getElementById("bbMaterial").value = plot?.version || "";
+  const assignee = plot && billboardAssignee(plot);
+  document.getElementById("bbAssignee").textContent = plot ? `PIC pelaksana: ${assignee?.name || "Belum tersedia / nama akun tidak unik. Perbaiki PIC Pemasangan Billboard pada plotting."}` : "";
+  document.getElementById("bbDates").innerHTML = plot ? billboardPending().filter(p =>
+    p.batchId === plot.batchId && p.brand === plot.brand && p.version === plot.version && p.billboardPic === plot.billboardPic
+  ).map(p => `<label><input type="checkbox" name="schedule" value="${escapeHTML(p.id)}" ${p.id === plot.id ? "checked" : ""}><span class="bb-date-text"><strong>${escapeHTML(formatDate(p.planAiring))}</strong><small>${escapeHTML(p.program)} · ${escapeHTML(p.unit)}</small></span></label>`).join("") : "";
+}
+function renderBillboardLists() {
+  if (!billboardDialog) return;
+  const me = currentTeamAccount();
+  const ready = billboardLoaded && firebaseSchedulesLoaded && teamAccountsLoaded && me?.active;
+  document.getElementById("bbError").textContent = billboardError || (!ready ? "Memuat akun, plotting, dan order…" : "");
+  document.getElementById("bbSubmit").disabled = !ready || billboardBusy;
+  if (!ready) return;
+  const pending = billboardPending();
+  const select = document.getElementById("bbPlot");
+  const selected = select.value;
+  const options = '<option value="">Pilih plotting Billboard</option>' + pending.map(p => `<option value="${escapeHTML(p.id)}">${escapeHTML(p.brand)} · ${escapeHTML(p.version)} · ${escapeHTML(formatDate(p.planAiring))}</option>`).join("");
+  const signature = JSON.stringify(pending.map(p => [p.id, p.planAiring, p.brand, p.version, p.billboardPic]));
+  if (select.dataset.bbOptions !== signature) {
+    select.dataset.bbOptions = signature;
+    select.innerHTML = options;
+    if (pending.some(p => p.id === selected)) select.value = selected;
+    billboardFill();
+  }
+  document.getElementById("bbReminders").innerHTML = billboardReminders().map(p => `<article class="bb-card bb-warning"><strong>H-1: jangan lupa order Billboard</strong><p>${escapeHTML(p.brand)} · ${escapeHTML(p.version)} · Tayang ${escapeHTML(formatDate(p.planAiring))}</p><button type="button" data-bb-seed="${escapeHTML(p.id)}">Buat order</button></article>`).join("");
+  const orders = Object.values(billboardOrders).filter(o => o.requesterId === me.id || o.assigneeId === me.id).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
+  document.getElementById("bbSummary").innerHTML = [
+    ["Order aktif", orders.filter(o => ["new","working","review","revision"].includes(o.status)).length, "active"],
+    ["Selesai", orders.filter(o => o.status === "done").length, "done"],
+    ["Pengingat H-1", billboardReminders().length, "reminder"]
+  ].map(([label, count, tone]) => `<div class="bb-stat bb-stat--${tone}"><span>${label}</span><strong>${count}</strong></div>`).join("");
+  document.getElementById("bbOrders").innerHTML = orders.map(o => {
+    const assigned = o.assigneeId === me.id;
+    const unread = o.notifyId === me.id && billboardSeen[o.id] !== o.updatedAt;
+    let actions = "";
+    const action = (status, text) => `<button type="button" data-bb-order="${escapeHTML(o.id)}" data-bb-status="${status}">${text}</button>`;
+    if (assigned && o.status === "new") actions += action("working", "Mulai kerjakan");
+    if (assigned && ["new", "working", "review", "revision"].includes(o.status)) actions += action("done", "Done / Sudah dikerjakan");
+    const tone = o.status === "done" ? "done" : o.status === "new" ? "new" : "working";
+    return `<article class="bb-card bb-order-card"><div class="bb-order-top"><div><span class="bb-order-brand">${escapeHTML(o.brand)}</span><h4>${escapeHTML(o.material)}</h4></div><span class="bb-status bb-status--${tone}">${escapeHTML(billboardStatus(o.status))}</span></div>${unread ? '<span class="bb-unread">● Pembaruan baru</span>' : ""}<div class="bb-order-dates"><span class="bb-meta-label">TANGGAL PENAYANGAN</span><div>${(o.schedules || []).map(s => `<span class="bb-date-chip">${escapeHTML(formatDate(s.date))}</span>`).join("")}</div></div><div class="bb-people"><div><span class="bb-meta-label">PEMESAN</span><strong>${escapeHTML(o.requesterName)}</strong></div><div><span class="bb-meta-label">PIC PELAKSANA</span><strong>${escapeHTML(o.assigneeName)}</strong></div></div>${o.note ? `<p class="bb-order-note">${escapeHTML(o.note)}</p>` : ""}${actions || unread ? `<div class="bb-actions">${actions}${unread ? `<button type="button" data-bb-read="${escapeHTML(o.id)}">Tandai dibaca</button>` : ""}</div>` : ""}</article>`;
+  }).join("") || '<div class="bb-empty"><strong>Belum ada order</strong><p>Order yang kamu buat atau terima akan muncul di sini.</p></div>';
+}
+async function billboardCreate(event) {
+  event.preventDefault();
+  if (billboardBusy || !billboardLoaded || !realtimeDatabaseReady()) return;
+  const me = currentTeamAccount();
+  const ids = [...document.querySelectorAll('#bbDates input:checked')].map(e => e.value);
+  const plots = billboardPending().filter(p => ids.includes(p.id));
+  const material = document.getElementById("bbMaterial").value.trim();
+  const assignee = plots[0] && billboardAssignee(plots[0]);
+  if (!me?.active || !plots.length || plots.length !== ids.length || !material || !assignee || plots.some(p => billboardAssignee(p)?.id !== assignee.id)) {
+    showToast({message:"Pilih jadwal, isi nama materi, dan pastikan PIC pelaksana memiliki satu akun aktif yang sesuai.", type:"warning"}); return;
+  }
+  const id = crypto.randomUUID(), timestamp = nowIso();
+  const record = {id, brand:plots[0].brand, material, requesterId:me.id, requesterName:me.name, assigneeId:assignee.id, assigneeName:assignee.name,
+    schedules:plots.map(p => ({id:p.id, date:p.planAiring})), status:"new", createdAt:timestamp, updatedAt:timestamp, notifyId:assignee.id};
+  billboardBusy = true; renderBillboardLists();
+  try {
+    // One transaction prevents two tabs from ordering the same plotting/date.
+    const result = await runTransaction(ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/billboardOrders`), value => {
+      const orders = value || {};
+      if (plots.some(p => billboardCovered(p, orders))) return;
+      return {...orders, [id]:record};
+    }, {applyLocally:false});
+    if (!result.committed) throw new Error("Jadwal sudah diorder oleh sesi lain. Muat ulang daftar order.");
+    document.getElementById("bbForm").reset(); billboardFill();
+    showToast({message:"Order terkirim ke PIC Billboard.", type:"success"});
+  } catch (error) { showToast({message:error.message || "Order gagal disimpan.", type:"error"}); }
+  finally { billboardBusy = false; renderBillboardLists(); }
+}
+async function billboardChange(id, status) {
+  const me = currentTeamAccount(), before = billboardOrders[id];
+  if (!me?.active || !before || billboardBusy || !billboardLoaded) return;
+  billboardBusy = true;
+  try {
+    const timestamp = nowIso();
+    const result = await runTransaction(ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/billboardOrders/${id}`), o => {
+      if (!o || o.updatedAt !== before.updatedAt) return;
+      const allowed = o.assigneeId === me.id && (
+        (o.status === "new" && status === "working") ||
+        (["new", "working", "review", "revision"].includes(o.status) && status === "done")
+      );
+      if (!allowed) return;
+      return {...o, status, updatedAt:timestamp, notifyId:o.requesterId};
+    }, {applyLocally:false});
+    if (!result.committed) throw new Error("Status telah berubah atau akun ini tidak berwenang. Periksa order terbaru.");
+    showToast({message:"Status order diperbarui.", type:"success"});
+  } catch (error) { showToast({message:error.message || "Perubahan gagal disimpan.", type:"error"}); }
+  finally { billboardBusy = false; renderBillboardLists(); }
+}
+function initializeBillboard() {
+  const style = document.createElement("style");
+  style.textContent = `#billboardDialog{box-sizing:border-box;position:fixed;inset:0;margin:auto;width:min(960px,calc(100vw - 40px));max-height:90dvh;padding:0;border:1px solid var(--line,#dce4ef);border-radius:22px;background:var(--surface-soft,#f8fbff);color:var(--ink,#172440);box-shadow:0 24px 80px #14254c40;overflow:auto;font:inherit;text-align:left}
+#billboardDialog *{box-sizing:border-box}
+#billboardDialog::backdrop{background:#101b3e80;backdrop-filter:blur(4px)}
+#billboardDialog .bb-header{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 28px;background:var(--surface,#fff);border-bottom:1px solid var(--line,#dce4ef)}
+#billboardDialog h2{margin:4px 0 0;font-size:22px;line-height:1.3;letter-spacing:-.5px}
+#billboardDialog .bb-eyebrow{color:var(--muted,#667791);font-size:10px;font-weight:800;letter-spacing:1.8px}
+#billboardDialog .bb-body{padding:22px 28px 28px}
+#billboardDialog p{margin:8px 0;line-height:1.6;font-size:13px}
+#billboardDialog .bb-description{color:var(--muted,#667791);margin:0 0 20px}
+#billboardDialog button{font:inherit;font-size:13px;font-weight:700;cursor:pointer;min-height:38px;border:1px solid var(--line,#cdd7e7);border-radius:10px;padding:9px 15px;background:var(--surface,#fff);color:var(--ink,#233b72)}
+#billboardDialog button:hover{border-color:#4383d8;background:var(--surface-soft,#f1f6ff)}
+#billboardDialog button:focus-visible,#billboardDialog a:focus-visible{outline:3px solid #8ab8f2;outline-offset:2px}
+#billboardDialog button:disabled{opacity:.5;cursor:not-allowed}
+#billboardDialog #bbClose{flex:none}
+#billboardDialog .bb-form-panel{padding:20px;background:var(--surface,#fff);border:1px solid var(--line,#dce4ef);border-radius:16px;margin-top:18px}
+#billboardDialog h3{margin:0 0 16px;font-size:16px;line-height:1.4}
+#billboardDialog #bbForm{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin:0}
+#billboardDialog #bbForm>label{display:flex;flex-direction:column;gap:7px;margin:0;min-width:0;font-size:12px;font-weight:700;color:var(--muted,#566781)}
+#billboardDialog .bb-full{grid-column:1/-1}
+#billboardDialog input:not([type=checkbox]),#billboardDialog select{display:block;box-sizing:border-box;width:100%;max-width:100%;min-width:0;height:44px;min-height:44px;padding:10px 12px;border:1px solid var(--line,#cdd7e7);border-radius:10px;background:var(--surface,#fff);color:var(--ink,#172440);font-size:13px;font-weight:500;line-height:1.4;box-shadow:none}
+#billboardDialog input[readonly]{background:var(--surface-soft,#f5f8fc);color:var(--muted,#667791)}
+#billboardDialog fieldset{min-width:0;border:0;margin:0;padding:0}
+#billboardDialog legend{padding:0;margin:0 0 8px;font-size:12px;font-weight:700;color:var(--muted,#566781)}
+#billboardDialog #bbDates{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:240px;overflow:auto;padding:3px}
+#billboardDialog #bbDates:empty::before{content:'Pilih plotting untuk melihat jadwal penayangan.';grid-column:1/-1;padding:18px;color:var(--muted,#667791);font-size:13px;border:1px dashed var(--line,#cdd7e7);border-radius:10px}
+#billboardDialog #bbDates label{display:flex;align-items:center;gap:10px;margin:0;padding:12px;border:1px solid var(--line,#dce4ef);border-radius:10px;background:var(--surface,#fff);cursor:pointer;min-width:0}
+#billboardDialog #bbDates label:has(input:checked){border-color:#4d8bda;background:var(--surface-soft,#f1f6ff);box-shadow:inset 0 0 0 1px #4d8bda}
+#billboardDialog #bbDates input[type=checkbox]{appearance:auto;display:inline-block;position:static;flex:0 0 18px;width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;max-width:18px;max-height:18px;margin:0!important;padding:0!important;border:initial;border-radius:3px;box-shadow:none;outline-offset:3px;accent-color:#286ac1;transform:none}
+#billboardDialog .bb-date-text{display:flex;flex-direction:column;gap:3px;min-width:0;overflow-wrap:anywhere}
+#billboardDialog .bb-date-text strong{font-size:13px;color:var(--ink,#233b72)}
+#billboardDialog .bb-date-text small{font-size:11px;color:var(--muted,#667791);font-weight:400;line-height:1.4}
+#billboardDialog .bb-form-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:1px solid var(--line,#dce4ef);padding-top:16px}
+#billboardDialog #bbAssignee{font-size:12px;color:var(--muted,#667791);margin:0}
+#billboardDialog #bbSubmit{background:#1765c4;color:#fff;border-color:#1765c4;flex:none;padding-inline:22px}
+#billboardDialog .bb-order-section{margin-top:26px}
+#billboardDialog .bb-card{border:1px solid var(--line,#cdd5e8);background:var(--surface,#fff);border-radius:14px;padding:18px;margin:10px 0;overflow-wrap:anywhere;font-size:14px}
+#billboardDialog .bb-warning{border-color:#eacb85;background:#fff8e7;color:#6d4a0c;border-left:4px solid #d9a332}
+#billboardDialog .bb-warning button{background:#fffaf0;color:#76541b;border-color:#e5c88d;margin-top:4px}
+#billboardDialog .bb-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+#billboardDialog #bbError{color:#b43832;padding:10px 12px;background:#fff0ef;border-radius:10px}
+#billboardDialog #bbError:empty{display:none}
+#billboardOpen .bb-notification-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;margin-left:auto;border-radius:10px;background:#e1edff;color:#175ab0;font:700 11px/1 sans-serif}
+#billboardOpen .bb-notification-count[hidden]{display:none}
+@media(max-width:640px){#billboardDialog{width:calc(100vw - 20px);max-height:94dvh;border-radius:16px}#billboardDialog .bb-header{padding:18px;gap:12px}#billboardDialog h2{font-size:18px}#billboardDialog .bb-body{padding:16px}#billboardDialog .bb-form-panel{padding:15px}#billboardDialog #bbForm,#billboardDialog #bbDates{grid-template-columns:1fr}#billboardDialog .bb-form-footer{align-items:stretch;flex-direction:column}#billboardDialog #bbSubmit{width:100%}}
+`;
+  style.textContent += `#billboardDialog .bb-header{background:linear-gradient(120deg,var(--surface,#fff),var(--surface-soft,#f2f7ff));border-top:4px solid #2871ca}
+#billboardDialog .bb-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+#billboardDialog .bb-stat{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface,#fff);border:1px solid var(--line,#dae4ef);border-radius:14px;padding:16px 18px}
+#billboardDialog .bb-stat span{font-size:12px;font-weight:600;color:var(--muted,#667791)}
+#billboardDialog .bb-stat strong{font-size:26px;line-height:1;color:#246cc4}
+#billboardDialog .bb-stat--done strong{color:#16835a}#billboardDialog .bb-stat--reminder strong{color:#b7801a}
+#billboardDialog .bb-section-heading{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+#billboardDialog .bb-section-heading h3{margin:0;font-size:16px}
+#billboardDialog .bb-section-heading p{margin:3px 0 0;font-size:12px;color:var(--muted,#667791)}
+#billboardDialog .bb-step{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:10px;background:#eaf2ff;color:#286dc0;font-size:12px;font-weight:800}
+#billboardDialog .bb-form-panel{box-shadow:0 3px 16px #15295404;padding:24px}
+#billboardDialog #bbOrders{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+#billboardDialog .bb-order-card{margin:0;padding:20px;border-radius:16px;box-shadow:0 3px 15px #172e5905}
+#billboardDialog .bb-order-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+#billboardDialog .bb-order-brand{font-size:11px;color:var(--muted,#667791);font-weight:700}
+#billboardDialog .bb-order-top h4{font-size:14px;line-height:1.5;margin:5px 0 0;overflow-wrap:anywhere}
+#billboardDialog .bb-status{display:inline-flex;flex:none;align-items:center;max-width:135px;border-radius:7px;padding:5px 8px;font-size:10px;font-weight:700;line-height:1.4}
+#billboardDialog .bb-status--done{background:#e8f6ef;color:#15734c}#billboardDialog .bb-status--new{background:#edf3ff;color:#2762b0}#billboardDialog .bb-status--working{background:#fff4d9;color:#926318}
+#billboardDialog .bb-unread{display:block;font-size:11px;color:#2769bf;margin-top:10px}
+#billboardDialog .bb-order-dates{margin-top:20px}
+#billboardDialog .bb-meta-label{display:block;font-size:9px;letter-spacing:.8px;font-weight:700;color:var(--muted,#667791);margin-bottom:7px}
+#billboardDialog .bb-order-dates>div{display:flex;flex-wrap:wrap;gap:5px}
+#billboardDialog .bb-date-chip{display:inline-block;border:1px solid var(--line,#dce5f1);background:var(--surface-soft,#f7f9fc);border-radius:6px;padding:4px 7px;font-size:11px}
+#billboardDialog .bb-people{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid var(--line,#e3eaf3);padding-top:14px;margin-top:16px}
+#billboardDialog .bb-people strong{font-size:12px;font-weight:600}
+#billboardDialog [data-bb-status=done]{background:#18774f;color:#fff;border-color:#18774f}
+#billboardDialog .bb-empty{grid-column:1/-1;text-align:center;padding:30px 16px;border:1px dashed var(--line,#cdd7e7);border-radius:14px;color:var(--muted,#667791)}
+#bbReminderPopup{box-sizing:border-box;position:fixed;inset:0;margin:auto;width:min(540px,calc(100vw - 32px));max-height:85dvh;overflow:auto;border:1px solid var(--line,#dce4ef);border-top:4px solid #e2a637;border-radius:20px;padding:26px;background:var(--surface,#fff);color:var(--ink,#172440);box-shadow:0 24px 80px #14254c50;font:inherit}
+#bbReminderPopup::backdrop{background:#101b3e80;backdrop-filter:blur(3px)}
+#bbReminderPopup *{box-sizing:border-box}#bbReminderPopup .bb-popup-header{display:flex;align-items:center;gap:12px}
+#bbReminderPopup .bb-popup-icon{display:grid;place-items:center;flex:none;width:42px;height:42px;border-radius:13px;background:#fff1cf;color:#a36c13;font-size:24px;font-weight:800}
+#bbReminderPopup small{font-size:10px;font-weight:700;color:var(--muted,#667791);letter-spacing:.6px}#bbReminderPopup h2{font-size:19px;margin:5px 0;line-height:1.4}
+#bbReminderPopup p{font-size:13px;line-height:1.6;margin:10px 0;color:var(--muted,#667791)}
+#bbReminderPopup #bbPopupItems{max-height:42dvh;overflow:auto;margin:18px 0}
+#bbReminderPopup .bb-popup-item{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px 0;border-top:1px solid var(--line,#e2e8f1)}
+#bbReminderPopup .bb-popup-item>div{min-width:0;overflow-wrap:anywhere}#bbReminderPopup strong{font-size:14px}#bbReminderPopup .bb-popup-item p{margin:4px 0}
+#bbReminderPopup button{font:inherit;cursor:pointer;border:1px solid #246bc3;background:#246bc3;color:#fff;border-radius:9px;padding:10px 13px;font-size:12px;font-weight:700;flex:none}
+#bbReminderPopup button:focus-visible{outline:3px solid #9fc4fa;outline-offset:3px}#bbReminderPopup footer{display:flex;align-items:center;justify-content:space-between;gap:15px;border-top:1px solid var(--line,#e2e8f1);padding-top:12px}
+#bbReminderPopup footer p{font-size:11px}#bbReminderPopup #bbPopupDismiss{background:var(--surface,#fff);color:var(--ink,#172440);border-color:var(--line,#dce4ef)}
+@media(max-width:640px){#billboardDialog #bbOrders{grid-template-columns:1fr}#billboardDialog .bb-summary{gap:7px}#billboardDialog .bb-stat{flex-direction:column;align-items:flex-start;padding:12px;gap:9px}#billboardDialog .bb-stat span{font-size:10px}#billboardDialog .bb-stat strong{font-size:22px}#billboardDialog .bb-form-panel{padding:16px}#bbReminderPopup{padding:20px}#bbReminderPopup .bb-popup-item{align-items:flex-start;flex-direction:column;gap:10px}}
+`;
+  document.head.append(style);
+  const button = document.createElement("button"); button.id = "billboardOpen"; button.type = "button"; button.hidden = true;
+  button.className = "nav-item nav-subitem";
+  button.innerHTML = '<span class="nav-dot" aria-hidden="true"></span><em>Order Billboard</em><span class="bb-notification-count" aria-hidden="true" hidden></span>';
+  button.addEventListener("click", () => { closeAllNavGroups(); billboardOpen(); });
+  document.querySelector('[data-nav-group="operations"] .nav-submenu').append(button);
+  const mobileMenu = document.querySelector(".mobile-menu-grid");
+  if (mobileMenu) {
+    const mobileButton = document.createElement("button");
+    mobileButton.id = "billboardMobileOpen"; mobileButton.type = "button";
+    mobileButton.className = "mobile-menu-item"; mobileButton.hidden = true;
+    mobileButton.innerHTML = '<span class="mobile-menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 16v5M16 16v5M7 8h10M7 12h6"></path></svg></span><strong>Order Billboard</strong><small>Operasional · Order dan notifikasi</small>';
+    mobileButton.addEventListener("click", () => { setMobileMenuOpen(false); billboardOpen(); });
+    const plottingMenu = mobileMenu.querySelector('[data-mobile-view="plotings"]');
+    if (plottingMenu) plottingMenu.after(mobileButton); else mobileMenu.append(mobileButton);
+  }
+  billboardDialog = document.createElement("dialog"); billboardDialog.id = "billboardDialog"; billboardDialog.setAttribute("aria-labelledby", "bbTitle");
+  billboardDialog.innerHTML = `<header class="bb-header"><div><span class="bb-eyebrow">OPERASIONAL</span><h2 id="bbTitle">Order VA2D Billboard</h2></div><button type="button" id="bbClose" aria-label="Tutup order Billboard">Tutup</button></header><div class="bb-body"><p class="bb-description">Buat order dari plotting dan pantau status pengerjaannya.</p><p id="bbError" role="status"></p><div id="bbSummary" class="bb-summary" aria-label="Ringkasan order"></div><div id="bbReminders"></div><section class="bb-form-panel" aria-labelledby="bbFormTitle"><div class="bb-section-heading"><span class="bb-step">01</span><div><h3 id="bbFormTitle">Buat order</h3><p>Pilih plotting dan tentukan tanggal penayangan.</p></div></div><form id="bbForm"><label class="bb-full">Plotting<select id="bbPlot" required></select></label><label>Nama brand<input id="bbBrand" readonly required></label><label>Nama materi<input id="bbMaterial" maxlength="140" required></label><fieldset class="bb-full"><legend>Tanggal penayangan · bisa pilih lebih dari satu</legend><div id="bbDates"></div></fieldset><div class="bb-form-footer bb-full"><p id="bbAssignee"></p><button id="bbSubmit" type="submit">Kirim order</button></div></form></section><section class="bb-order-section" aria-labelledby="bbOrdersTitle"><div class="bb-section-heading"><span class="bb-step">02</span><div><h3 id="bbOrdersTitle">Order saya & tugas saya</h3><p>Pantau status dan selesaikan pekerjaanmu.</p></div></div><div id="bbOrders"></div></section></div>`;
+  document.body.append(billboardDialog);
+  billboardReminderDialog = document.createElement("dialog");
+  billboardReminderDialog.id = "bbReminderPopup";
+  billboardReminderDialog.setAttribute("aria-labelledby", "bbPopupTitle");
+  billboardReminderDialog.setAttribute("aria-describedby", "bbPopupCount");
+  billboardReminderDialog.innerHTML = `<div class="bb-popup-header"><span class="bb-popup-icon" aria-hidden="true">!</span><div><small>PENGINGAT H-1</small><h2 id="bbPopupTitle">Jangan lupa order Billboard</h2></div></div><p id="bbPopupCount"></p><div id="bbPopupItems"></div><footer><p>Pengingat tetap tersedia di menu Order Billboard.</p><button type="button" id="bbPopupDismiss">Nanti</button></footer>`;
+  document.body.append(billboardReminderDialog);
+  document.getElementById("bbPopupDismiss").onclick = () => billboardReminderDialog.close();
+  billboardReminderDialog.addEventListener("click", event => {
+    const button = event.target.closest("[data-bb-popup-order]");
+    if (!button) return;
+    const id = button.dataset.bbPopupOrder;
+    billboardReminderDialog.close(); billboardOpen(id);
+  });
+  document.getElementById("bbClose").onclick = () => billboardDialog.close();
+  document.getElementById("bbPlot").onchange = billboardFill;
+  document.getElementById("bbForm").onsubmit = billboardCreate;
+  billboardDialog.addEventListener("click", async event => {
+    const b = event.target.closest("button"); if (!b) return;
+    if (b.dataset.bbSeed) billboardOpen(b.dataset.bbSeed);
+    if (b.dataset.bbOrder) await billboardChange(b.dataset.bbOrder, b.dataset.bbStatus);
+    if (b.dataset.bbRead && currentFirebaseUser) {
+      const o = billboardOrders[b.dataset.bbRead]; if (!o || o.notifyId !== currentTeamAccountId()) return;
+      try { await update(ref(realtimeDb, `${REALTIME_DATABASE_ROOT}/billboardRead/${currentFirebaseUser.uid}`), {[o.id]:o.updatedAt}); }
+      catch (_) { showToast({message:"Notifikasi belum dapat ditandai dibaca.", type:"error"}); }
+    }
+  });
+  window.setInterval(() => { renderBillboardBadge(); if (billboardDialog.open) renderBillboardLists(); }, 30_000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderBillboardBadge(); renderBillboardLists(); } });
+  renderBillboardBadge();
+}
+
+initializeBillboard();
+
 try { localStorage.removeItem(LOCAL_SETTINGS_KEY); } catch (error) { /* Pengaturan lama boleh diabaikan. */ }
 document.body.dataset.activeView = activeView;
 bindThemeEvents();
@@ -6345,9 +6709,10 @@ try {
 
 
 // v98: scroll reveal observer
+// Audit tables can exceed the viewport many times; keep their data panel visible.
 (() => {
   const targets = [
-    '.panel',
+    '.panel:not(.audit-log-panel)',
     '.kpi-card',
     '.mini-kpi',
     '.section-intro',
