@@ -5868,23 +5868,87 @@ function masterPlotingExportRows(plots) {
   ]);
 }
 
-function exportPlotingsExcel() {
+let masterExcelExportBusy = false;
+let masterExcelLibraryPromise = null;
+
+function loadMasterExcelLibrary() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (masterExcelLibraryPromise) return masterExcelLibraryPromise;
+  masterExcelLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const timer = setTimeout(() => fail(), 20000);
+    const fail = () => { clearTimeout(timer); script.remove(); masterExcelLibraryPromise = null; reject(new Error("Komponen Excel gagal dimuat. Periksa folder vendor dan koneksi, lalu coba lagi.")); };
+    script.src = new URL("./vendor/exceljs-4.4.0.min.js", import.meta.url).href;
+    script.onload = () => { clearTimeout(timer); if (window.ExcelJS) resolve(window.ExcelJS); else fail(); };
+    script.onerror = fail;
+    document.head.appendChild(script);
+  });
+  return masterExcelLibraryPromise;
+}
+
+function buildMasterPlotingExcel(ExcelJS, plots, selectedFilters, exportedAt = new Date()) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Benefit Virtual Ads";
+  workbook.created = exportedAt;
+  const sheet = workbook.addWorksheet("Master Ploting VA");
+  const headers = ["No", "Tanggal Tayang", "Batch ID", "PT Advertiser", "Brand", "Nama Sales", "PIC Ploting", "PIC Billboard", "Unit On Air", "Program", "POD", "Versi VA", "Format VA", "Durasi", "Materi GFX", "Spot", "Status Tayang", "Segmentasi", "Catatan Benefit", "Note Tambahan", "Dibuat", "Diubah"];
+  const widths = [6, 17, 20, 28, 22, 22, 22, 22, 17, 28, 14, 32, 20, 14, 20, 9, 20, 22, 38, 38, 24, 24];
+  sheet.columns = widths.map((width) => ({ width }));
+  sheet.getRow(1).values = headers;
+  sheet.getRow(1).height = 30;
+  sheet.getRow(1).eachCell((cell) => {
+    cell.font = { name: "Calibri", size: 11, bold: true };
+    cell.alignment = { vertical: "middle", wrapText: true };
+    cell.border = { bottom: { style: "thin", color: { argb: "FFD9D9D9" } } };
+  });
+  const sorted = sortByDate(plots);
+  masterPlotingExportRows(sorted).forEach((values, index) => {
+    const rowValues = values.map((value, col) => col === 0 || col === 15 ? Number(value) || 0 : String(value ?? ""));
+    const date = sorted[index].planAiring;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date || "") && Number.isFinite(Date.parse(`${date}T00:00:00Z`))) rowValues[1] = new Date(`${date}T00:00:00Z`);
+    const row = sheet.getRow(index + 2);
+    row.values = rowValues;
+    row.height = Math.max(24, ...rowValues.map((value, col) => {
+      const display = value instanceof Date ? "00 Jan 2000" : String(value ?? "");
+      const lines = display.split(/\r?\n/).reduce((total, line) => total + Math.max(1, Math.ceil(line.length / Math.max(1, widths[col] - 3))), 0);
+      return lines * 15 + 6;
+    }));
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { name: "Calibri", size: 11 };
+      cell.alignment = { vertical: "top", wrapText: true };
+    });
+    row.getCell(2).numFmt = "dd mmm yyyy";
+    row.getCell(1).numFmt = "#,##0";
+    row.getCell(16).numFmt = "#,##0";
+  });
+  return workbook;
+}
+
+async function exportPlotingsExcel() {
+  if (masterExcelExportBusy) return;
   const plots = filteredPlotings();
   if (!plots.length) { showToast("Tidak ada data Master Ploting untuk diexport."); return; }
-  const headers = ["No", "Tanggal Tayang", "Batch ID", "PT Advertiser", "Brand", "Nama Sales", "PIC Ploting", "PIC Billboard", "Unit On Air", "Program", "POD", "Versi VA", "Format VA", "Durasi", "Materi GFX", "Spot", "Status Tayang", "Segmentasi", "Catatan Benefit", "Note Tambahan", "Dibuat", "Diubah"];
-  const selectedMonthLabels = (filters.plot.months || []).map((month) => MONTH_OPTIONS.find(([value]) => value === month)?.[1] || month);
-  const plotPeriod = [filters.plot.year || "semua-tahun", selectedMonthLabels.length ? selectedMonthLabels.join("+") : "semua-bulan"].join("-");
-  const selectedPrograms = filters.plot.programs?.length ? filters.plot.programs.join("+") : "semua-program";
-  const selectedUnits = filters.plot.units?.length ? filters.plot.units.join("+") : "semua-unit";
-  const scope = [plotPeriod, selectedPrograms, selectedUnits].join("-");
-  exportExcelWorkbook(`master-ploting-va-${scope}-${state.operationDate}`, [{
-    name: "Master Ploting",
-    headers,
-    rows: masterPlotingExportRows(plots),
-    numericColumns: [0, 15],
-    widths: [42, 100, 90, 190, 120, 85, 100, 110, 85, 160, 65, 220, 110, 90, 105, 50, 95, 120, 220, 220, 130, 130]
-  }]);
-  showToast(`${plots.length} jadwal Master Ploting diexport ke Excel.`);
+  const snapshot = JSON.parse(JSON.stringify({ plots, filters: filters.plot }));
+  const button = $("#exportPlotingsExcelButton");
+  const originalLabel = button.textContent;
+  masterExcelExportBusy = true;
+  button.disabled = true;
+  button.textContent = "Menyiapkan Excel…";
+  try {
+    const ExcelJS = await loadMasterExcelLibrary();
+    const exportedAt = new Date();
+    const workbook = buildMasterPlotingExcel(ExcelJS, snapshot.plots, snapshot.filters, exportedAt);
+    const buffer = await workbook.xlsx.writeBuffer();
+    const stamp = exportedAt.toISOString().replace(/[:.]/g, "-");
+    downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `master-ploting-va-${stamp}.xlsx`);
+    showToast(`${plots.length} jadwal Master Ploting diexport ke Excel.`);
+  } catch (error) {
+    showToast(error.message || "Export Excel gagal. Silakan coba lagi.");
+  } finally {
+    masterExcelExportBusy = false;
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
 }
 
 function getPicExportData() {

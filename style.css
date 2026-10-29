@@ -11977,3 +11977,8 @@ button:active {
     animation-duration: .22s;
   }
 }
+
+/* Allow Master Ploting dropdowns to extend beyond the toolbar. */
+#plotingsView .toolbar-plotings {
+  content-visibility: visible;
+}
